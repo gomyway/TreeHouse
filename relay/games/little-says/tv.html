@@ -44,6 +44,11 @@
   .verdict.good { background: var(--good); color: #0b150b; } .verdict.bad { background: var(--bad); color: #fff; }
   @keyframes pop { from { transform: scale(.4); opacity: 0; } }
 
+  .grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; align-content: start; }
+  .pcard { position: relative; border-radius: 24px; border: 3px solid var(--line); background: var(--card); padding: 22px 26px; display: flex; flex-direction: column; gap: 6px; }
+  .pcard .name { font-size: 40px; color: var(--ink); } .pcard .lives { font-size: 34px; } .pcard .pts { font-size: 30px; }
+  .pcard.out { filter: grayscale(1); opacity: .45; }
+  .pcard .verdict { font-size: 30px; right: 16px; top: 16px; padding: 4px 14px; }
   .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px; }
   .big { font-size: 110px; font-weight: 900; letter-spacing: -3px; line-height: 1.02; } .big .g { color: var(--gold); }
   .sub2 { font-size: 36px; color: var(--ink2); max-width: 1500px; }
@@ -76,6 +81,10 @@ let players = new Map(), joinOrder = [];
 let phase = "setup", token = 0;
 const who = [0, 1].map((i) => ({ phone: null, name: `Player ${i + 1}`, lives: LIVES, pts: 0, out: false, seen: false, fig: null, everSeen: false }));
 let motionState = "starting", autoStart = false;
+// Phone mode: no usable camera, so every joined phone plays by tapping the arm it would raise.
+let phoneMode = false;
+const pp = new Map(); // phone id -> { name, lives, pts, out }
+const ppAnswer = new Map(); // phone id -> { key, at } for the current command
 let n = 0, current = null, verdicts = [null, null];
 const bets = new Map(), betPts = new Map();
 
@@ -102,6 +111,14 @@ function postState(summary) {
 
 // ---------- phones ----------
 function screenFor(id) {
+  if (phoneMode) {
+    const p = pp.get(id);
+    if (phase === "final") return { kind: "info", title: p ? (p.out ? "You're out!" : "You survived!") : "Game over", body: p ? `${p.pts} points.` : "Look at the TV." };
+    if (!p) return { kind: "info", title: "Watching", body: "Look at the TV." };
+    if (p.out) return { kind: "info", title: "You're out!", body: "Cheer from the couch." };
+    if (current && current.open && !ppAnswer.has(id)) return { kind: "buttons", prompt: "Listen… only if Little says!", items: MOVES.map((m) => ({ id: "do-" + m.key, label: m.show })), deadline: current.closesAt };
+    return { kind: "info", title: `${"♥".repeat(p.lives)}  ${p.pts} pts`, body: "Listen to Little." };
+  }
   const wi = whoOf(id);
   if (wi >= 0) {
     const w = who[wi];
@@ -133,6 +150,7 @@ function startSetup() {
   postState("Setup: players step in front of the TV; each gets a numbered figure.");
   render();
   later(SETUP_MS, startPlay);
+  later(15000, () => { if (phase === "setup" && !who.some((w) => w.everSeen) && active().length) enterPhoneMode("no camera signal"); });
 }
 function claim(phone, choice) {
   if (phase !== "setup" || whoOf(phone) >= 0) return;
@@ -146,10 +164,22 @@ function claim(phone, choice) {
   refreshPhones(); render();
 }
 
+function enterPhoneMode(reason) {
+  if (phoneMode || phase === "final") return;
+  send({ type: "motion_stop" });
+  if (!active().length) { say("I can't see anyone and nobody joined by phone. Let's try again later."); return finish(); }
+  phoneMode = true;
+  for (const p of active().slice(0, 12)) pp.set(p.id, { name: p.name, lives: LIVES, pts: 0, out: false });
+  postState(`No camera (${reason}): playing on phones with ${pp.size} players.`);
+  token++; phase = "setup";
+  say("No camera today, so we'll play on your phones! Tap the arm you'd raise, but only when Little says.", true).then(() => { phase = "setup"; startPlay(); });
+}
+
 function startPlay() {
   if (phase !== "setup") return;
+  if (!phoneMode && !inGame().length && active().length) return enterPhoneMode("nobody seen");
   token++; phase = "play"; n = 0;
-  if (!inGame().length) { say("I can't see anyone in front of the TV. Let's try again later."); return finish(); }
+  if (!phoneMode && !inGame().length) { say("I can't see anyone in front of the TV. Let's try again later."); return finish(); }
   refreshPhones(); render();
   say("Only move when Little says. Arms down. Here we go!", true).then(() => later(600, nextCommand));
 }
@@ -159,18 +189,27 @@ const trapChance = () => Math.min(0.45, 0.2 + n * 0.02);
 
 async function nextCommand() {
   if (phase !== "play") return;
-  const playing = inGame(), started = who.filter((w) => w.everSeen).length;
-  if (n >= COMMANDS_MAX || !playing.length || (started >= 2 && playing.length < 2)) return finish();
+  if (phoneMode) {
+    const alive = [...pp.values()].filter((p) => !p.out).length;
+    if (n >= COMMANDS_MAX || !alive || (pp.size >= 2 && alive < 2)) return finish();
+  } else {
+    const playing = inGame(), started = who.filter((w) => w.everSeen).length;
+    if (n >= COMMANDS_MAX || !playing.length || (started >= 2 && playing.length < 2)) return finish();
+  }
   n++;
   const move = MOVES[Math.floor(Math.random() * MOVES.length)];
   const trap = n > 2 && Math.random() < trapChance();
   current = { move, trap, events: [[], []], listenFrom: Date.now() + 300 };
   verdicts = [null, null];
+  for (const p of pp.values()) p.verdict = null;
   render();
   const t = token, mine = current;
   await say(trap ? cap(move.text) + "!" : `Little says, ${move.text}!`, true);
   if (t !== token || current !== mine) return;
-  const w = windowMs();
+  const w = windowMs() + (phoneMode ? 600 : 0); // a tap needs a little longer than an arm
+  current.open = true; current.closesAt = Date.now() + w;
+  ppAnswer.clear();
+  if (phoneMode) refreshPhones();
   render(w);
   later(w, judge);
 }
@@ -193,6 +232,28 @@ function moved(events, key) {
 function judge() {
   if (phase !== "play" || !current) return;
   const c = current, lines = [];
+  c.open = false;
+  if (phoneMode) {
+    for (const [id, p] of pp) {
+      if (p.out) continue;
+      const a = ppAnswer.get(id);
+      let ok, why;
+      if (c.trap) { ok = !a; why = ok ? "STILL!" : "GOTCHA"; }
+      else if (a && a.key === c.move.key) { ok = true; why = "✓"; }
+      else { ok = false; why = a ? "WRONG" : "TOO SLOW"; }
+      p.verdict = { ok, why };
+      if (ok) p.pts += 100;
+      else { p.lives--; if (p.lives <= 0) { p.out = true; lines.push(`${p.name} is out!`); } }
+    }
+    const gotcha = [...pp.values()].filter((p) => p.verdict && !p.verdict.ok && c.trap && !p.out).map((p) => p.name);
+    if (gotcha.length) lines.unshift(`Gotcha, ${gotcha.slice(0, 2).join(" and ")}!`);
+    render(); refreshPhones();
+    postState(`Command ${n}: ${c.trap ? "trap, " : ""}${c.move.text}. ${[...pp.values()].map((p) => `${p.name} ${p.out ? "out" : p.lives + " lives"}, ${p.pts}`).join("; ")}`);
+    const line = lines.slice(0, 2).join(" ");
+    const go = () => later(REST_MS, nextCommand);
+    if (line) say(line, true).then(go); else go();
+    return;
+  }
   for (const i of inGame()) {
     const ev = c.events[i], w = who[i], any = ev.length > 0;
     let ok, why;
@@ -219,8 +280,8 @@ let final = null;
 function finish() {
   token++; phase = "final";
   send({ type: "motion_stop" });
-  const ranked = who.filter((w) => w.everSeen).sort((a, b) => (b.out ? 0 : 1) - (a.out ? 0 : 1) || b.pts - a.pts || b.lives - a.lives);
-  const win = ranked[0], wi = win ? who.indexOf(win) : -1, correct = [];
+  const ranked = (phoneMode ? [...pp.values()] : who.filter((w) => w.everSeen)).sort((a, b) => (b.out ? 0 : 1) - (a.out ? 0 : 1) || b.pts - a.pts || b.lives - a.lives);
+  const win = ranked[0], wi = win && !phoneMode ? who.indexOf(win) : -1, correct = [];
   for (const [id, i] of bets) if (i === wi) { betPts.set(id, 100); correct.push(players.get(id)?.name ?? "someone"); }
   final = { ranked, correct };
   const line = win ? `${win.name} wins Little Says with ${win.pts} points!${correct.length ? ` Good bets from ${correct.slice(0, 3).join(", ")}.` : ""}` : "Nobody played. Next time!";
@@ -268,6 +329,13 @@ function render(windowArg) {
       ? `<div class="command"><div class="says">${current.trap ? "Trap! Nobody said Little says:" : "Little says:"}</div><div class="do" style="color:${current.trap ? "var(--bad)" : "var(--ink)"}">${current.move.show}</div></div>`
       : `<div class="command"><div class="says">Listen…</div><div class="do listen">👂</div><div class="window ${windowArg ? "run" : ""}" style="--w:${windowArg ?? 0}ms"><i></i></div></div>`;
   } else mid = `<div class="command"><div class="says">Only move when Little says</div><div class="do">ARMS DOWN</div></div>`;
+  if (phoneMode) {
+    const cards = [...pp.values()].map((p) => `<section class="pcard ${p.out ? "out" : ""}"><div class="name">${esc(p.name)}</div>
+      <div class="lives">${"♥".repeat(Math.max(0, p.lives))}<span style="opacity:.2">${"♥".repeat(LIVES - Math.max(0, p.lives))}</span></div><div class="pts">${p.pts} pts</div>
+      ${p.verdict ? `<div class="verdict ${p.verdict.ok ? "good" : "bad"}">${p.verdict.why}</div>` : ""}</section>`).join("");
+    app.innerHTML = head + mid + `<div class="grid">${cards}</div>`;
+    return;
+  }
   app.innerHTML = head + mid + `<div class="stage">${whoHtml(0)}${whoHtml(1)}</div>`;
 }
 // Figures repaint at the people rate without re-rendering the whole screen.
@@ -301,6 +369,13 @@ window.addEventListener("message", (e) => {
     case "players": setPlayers(m.players); break;
     case "input": {
       const id = m.data?.id; if (!id) return;
+      if (phoneMode) {
+        if (phase === "play" && current?.open && pp.has(m.player) && !pp.get(m.player).out && !ppAnswer.has(m.player) && String(id).startsWith("do-")) {
+          ppAnswer.set(m.player, { key: String(id).slice(3), at: Date.now() });
+          send({ type: "screen", to: m.player, screen: { kind: "info", title: "Locked in", body: "Look at the TV." } });
+        }
+        break;
+      }
       if (phase === "setup") claim(m.player, id);
       else if (String(id).startsWith("bet") && whoOf(m.player) < 0 && !bets.has(m.player)) { bets.set(m.player, id === "bet1" ? 1 : 0); send({ type: "screen", to: m.player, screen: screenFor(m.player) }); render(); }
       break;
@@ -309,7 +384,7 @@ window.addEventListener("message", (e) => {
     case "motion": onMotion(m); break;
     case "motion_status":
       motionState = m.state + (m.reason ? ` (${m.reason})` : "");
-      if (m.state === "unavailable" && phase !== "final") { say("I can't use the camera right now, so Little Says is off."); finish(); }
+      if (m.state === "unavailable" && phase !== "final") enterPhoneMode(m.reason || "camera unavailable");
       break;
     case "said": { const f = saidWaiters.get(m.id); if (f) { saidWaiters.delete(m.id); f(); } break; }
     case "voice": onVoice(m.text); break;

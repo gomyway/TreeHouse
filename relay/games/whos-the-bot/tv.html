@@ -42,9 +42,10 @@
 
   .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; align-content: start; flex: 1; }
   .grid.n-few { grid-template-columns: repeat(3, 1fr); }
-  .cardw { perspective: 1400px; }
-  .card { position: relative; min-height: 170px; transition: transform .7s cubic-bezier(.3,1.3,.5,1); transform-style: preserve-3d; }
-  .face { position: absolute; inset: 0; backface-visibility: hidden; border-radius: 24px; padding: 22px 26px 18px 92px;
+  /* 2D only: the 3D flip (perspective/preserve-3d/backface-visibility) froze rendering in the
+     little dev simulator; a cross-fade is safe on every TV GPU. */
+  .card { position: relative; min-height: 170px; }
+  .face { position: absolute; inset: 0; border-radius: 24px; transition: opacity .45s, transform .45s cubic-bezier(.3,1.3,.5,1); padding: 22px 26px 18px 92px;
     background: var(--card); border: 2px solid var(--line); display: flex; flex-direction: column; justify-content: center; }
   .face .letter { position: absolute; left: 22px; top: 22px; width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center;
     font-size: 30px; font-weight: 800; background: #0b0f0c; border: 2px solid var(--line); color: var(--ink2); }
@@ -52,11 +53,12 @@
   .face .meta { margin-top: 10px; font-size: 26px; color: var(--ink3); display: flex; gap: 16px; align-items: center; min-height: 32px; }
   .face .meta .stars { color: var(--human); font-weight: 800; }
   .face .meta .who { color: var(--ink); font-weight: 700; }
-  .back { transform: rotateY(180deg); background: linear-gradient(135deg, #0f2a38, #0b1820); border-color: var(--bot); }
+  .back { opacity: 0; transform: scale(.85); background: linear-gradient(135deg, #0f2a38, #0b1820); border-color: var(--bot); }
   .back .robot { font-size: 64px; position: absolute; left: 18px; top: 50%; transform: translateY(-50%); }
   .back .txt { color: #cfeeff; }
   .back .meta .who { color: var(--bot); }
-  .card.flipped { transform: rotateY(180deg); }
+  .card.flipped .face:not(.back) { opacity: 0; transform: scale(.9); }
+  .card.flipped .back { opacity: 1; transform: none; }
   .card.human .face { border-color: var(--human); box-shadow: 0 0 40px rgba(255,193,69,.35); }
   .card.dim { opacity: .35; }
   .card.glitch { animation: glitch .6s steps(2) 2; }
@@ -470,7 +472,7 @@ function cardHtml(c) {
   const meta = reveal ? `${stars ? `<span class="stars">★ ${stars}</span>` : ""}${tags ? `<span>${r.mode === "bot" ? "🤖" : "🔎"} ${tags}</span>` : ""}${who ? `<span class="who">${esc(who)}</span>` : ""}` : "";
   return `<div class="cardw"><div class="card${flipped ? " flipped" : ""}${cls}">
       <div class="face"><span class="letter">${c.letter}</span><div class="txt">${esc(c.text)}</div><div class="meta">${bot && flipped ? "" : meta}</div></div>
-      ${bot ? `<div class="face back"><span class="robot">🤖</span><div class="txt">${esc(c.text)}</div><div class="meta"><span class="who">BOT · ${esc(nameOf(c.author))}</span>${tags && r.mode === "bot" ? `<span>caught by ${tags}</span>` : ""}</div></div>` : ""}
+      ${bot && reveal ? `<div class="face back"><span class="robot">🤖</span><div class="txt">${esc(c.text)}</div><div class="meta"><span class="who">BOT · ${esc(nameOf(c.author))}</span>${tags && r.mode === "bot" ? `<span>caught by ${tags}</span>` : ""}</div></div>` : ""}
     </div></div>`;
 }
 function render() {

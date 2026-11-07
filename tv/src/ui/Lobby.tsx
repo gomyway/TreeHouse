@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { Player } from "../room/model";
 import type { GameMeta } from "../game/catalog";
 import { Qr } from "./Qr";
@@ -29,6 +30,12 @@ export function Lobby({
   onPick: (g: GameMeta) => void;
 }) {
   const shortUrl = joinUrl?.replace(/^https?:\/\//, "").replace(/\/?\?c=.*$/, "");
+  // One focus system: the browser's own focus follows our remote focus index, so the TV never
+  // shows two highlighted tiles (its native ring on one, ours on another).
+  const tiles = useRef<(HTMLLIElement | null)[]>([]);
+  useEffect(() => {
+    tiles.current[focus]?.focus({ preventScroll: true });
+  }, [focus, games.length]);
   return (
     <main className="lobby" data-little="region" data-little-label="Lobby">
       <div className="lobby-left">
@@ -66,6 +73,10 @@ export function Lobby({
               {games.slice(0, 4).map((g, i) => (
                 <li
                   key={g.id}
+                  ref={(el) => {
+                    tiles.current[i] = el;
+                  }}
+                  tabIndex={i === focus ? 0 : -1}
                   className={`game-tile${i === focus ? " focused" : ""}`}
                   data-little="item"
                   data-little-id={g.id}
