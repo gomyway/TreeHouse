@@ -15,6 +15,9 @@ export interface Moment {
   players?: string[];
   kind?: "funny" | "win" | "fail" | "clutch" | "bot" | string;
   clip?: ClipFrame[]; // camera games: ~2.5 s of stick figures before the moment
+  playerGuids?: string[]; // parallel to players ("" where unknown)
+  crew?: string[]; // sorted guids of everyone in the room
+  room?: string; // room code
 }
 
 export interface GameResult {

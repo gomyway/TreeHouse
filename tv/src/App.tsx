@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { authorGame } from "./game/author";
 import { findGame, listGames, loadGameHtml, type GameMeta } from "./game/catalog";
 import { allMemories, pickHighlights, remember, type Moment } from "./game/memories";
+import { playersContext, postMemories, tagMoments } from "./game/memoriesSync";
 import { createGameHost, type GameHost, type GameState } from "./game/runner";
 import type { Player, RoomEvent, Screen } from "./room/model";
 import { playerName, useRoom } from "./room/useRoom";
@@ -226,10 +227,15 @@ export default function App() {
         // Game over: save the moments to the TV's memory book, then replay the best ones beside
         // the leaderboard before going back to the lobby.
         onDone: () => {
-          const moments = sessionMoments.current;
+          const roster = roomRef.current.players;
+          const moments = tagMoments(sessionMoments.current, roster, roomRef.current.code);
           const scores = gameStateRef.current?.scores;
           const top = scores ? Object.entries(scores).sort((a, b) => b[1] - a[1])[0] : undefined;
-          remember(moments, scores ? { at: Date.now(), game: title, winner: top?.[0], scores } : undefined);
+          const at = Date.now();
+          const result = scores ? { at, game: title, winner: top?.[0], scores } : undefined;
+          remember(moments, result);
+          // File the game on the Worker too, right away (the host token dies 60 s after the TV leaves).
+          void postMemories({ credentials: roomRef.current.transport?.credentials?.() ?? null, game: title, at, moments, result, roster });
           sessionMoments.current = [];
           if (!moments.length) return toLobby();
           hostRef.current?.dispose();
@@ -395,6 +401,8 @@ export default function App() {
       idea,
       (p) => setView((v) => (v.kind === "authoring" && authorAbort.current === ctl ? { ...v, status: p.status, elapsedMs: p.elapsedMs } : v)),
       ctl.signal,
+      // Who is in the room, with guids, so the runner can seed the game with "Room memory".
+      { players: playersContext(roomRef.current.players) },
     )
       .then(async (meta) => {
         if (authorAbort.current !== ctl) return;

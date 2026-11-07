@@ -11,12 +11,13 @@ export async function authorGame(
   prompt: string,
   onProgress: (p: AuthorProgress) => void,
   signal?: AbortSignal,
+  context?: Record<string, unknown>,
 ): Promise<GameMeta> {
   const started = Date.now();
   const res = await fetch(`${RELAY_HTTP}/author`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify(context ? { prompt, context } : { prompt }),
     signal,
   });
   const first = (await res.json().catch(() => ({}))) as Record<string, unknown>;
