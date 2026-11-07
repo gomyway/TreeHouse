@@ -176,6 +176,27 @@ game where any joined player (the late joiner too) never gets a buttons/text/pad
 or fewer than 2 are sent (warn only when `phonesRequired` is false), warns when phone buttons
 offer named characters who are not players, and prints a `participation` line per pass.
 
+
+## Backlog: game scope, per TV vs global (Nelson, 15:50)
+
+Today every bundle on the game server is global: any TV lists and starts it. Once authored games are
+seeded with Room memory they carry details about specific people (names, callbacks, standing jokes),
+so they must not surface on other TVs.
+
+- `meta.scope: "global" | "tv"` (default `"global"` for hand-built bundles and for authored games
+  built with no memory block). The runner sets `"tv"` whenever the task carried a Room memory block
+  or a players list, and records `meta.tvId` (the TV that asked) and `meta.crew` (sorted guids
+  present at authoring time).
+- `create_game` sends `context.tvId` with the players; `list_games` calls `GET /games?tv=<tvId>`,
+  which returns global bundles plus that TV's own; `GET /games` without `tv` returns global only.
+  `start_game` on a `tv`-scoped bundle from another TV is refused by the server (404).
+- `pnpm games:publish` stays global. A later "share this game" could re-author a `tv` bundle into a
+  global one by stripping the memory-specific text (new job with scope global and no memory block).
+- Memory book entries keep `room` and `crew`; a TV's `show_memories` and the Room memory block are
+  already scoped by guid, so only the bundle listing needs the change.
+- Where `tvId` comes from: the host's household or device id from the SDK environment if available,
+  else a per-TV id the host generates once and keeps in localStorage next to `lr.memories.v1`.
+
 ## Memories (sketch, Nelson 15:20): the recap is the harvest
 
 Goal: games and the host remember people across rooms and days, and authored games are seeded with
