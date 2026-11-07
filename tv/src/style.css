@@ -142,3 +142,22 @@ body {
 .author-steps li.now { color: var(--ink); animation: blink 1.4s infinite; }
 .author-steps li.now::before { content: "●  "; color: var(--accent); }
 .author-error { font-size: 36px; color: var(--accent); }
+
+/* Camera check */
+.camcheck { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 28px; }
+.camcheck-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; }
+.camcheck-slots { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+.camslot { display: flex; flex-direction: column; gap: 16px; padding: 28px; border-radius: 28px; background: var(--card); border: 3px solid var(--line); }
+.camslot-active { border-color: var(--c); box-shadow: 0 0 40px color-mix(in srgb, var(--c) 30%, transparent); }
+.camslot-acquiring, .camslot-temporarily-lost { border-style: dashed; border-color: var(--c); }
+.camslot-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 30px; }
+.camslot-head b { color: var(--c); }
+.camslot-head span { font-size: 22px; color: var(--ink-3); }
+.camslot-last { font-size: 40px; font-weight: 800; min-height: 52px; color: var(--ink-3); transition: color 200ms; }
+.camslot-last.fresh { color: var(--ink); animation: pop 300ms cubic-bezier(.2,1.4,.4,1); }
+.camslot-held { font-size: 24px; color: var(--leaf); min-height: 30px; }
+.camslot-lean { position: relative; height: 16px; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--line); }
+.camslot-lean span { position: absolute; top: -6px; width: 26px; height: 26px; margin-left: -13px; border-radius: 50%; background: var(--c); transition: left 120ms linear; }
+.camslot-counts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 24px; color: var(--ink-2); }
+.camslot-counts li { display: flex; justify-content: space-between; }
+.camslot-counts b { color: var(--ink); font-variant-numeric: tabular-nums; }

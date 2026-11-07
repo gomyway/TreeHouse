@@ -6,6 +6,10 @@
     {
       "name": "voice.say",
       "reason": "Welcome players by name as they join from their phones."
+    },
+    {
+      "name": "sense.motion",
+      "reason": "See how people move in front of the TV for camera games. Only body positions are used, never video."
     }
   ],
   "tools": [
@@ -162,6 +166,20 @@
         "required": [
           "id"
         ]
+      }
+    },
+    {
+      "name": "camera_check",
+      "description": "Show or hide the camera check: what the TV's motion tracking sees for each person standing in front of it. Use when someone wants to test the camera or motion tracking.",
+      "authority": "read",
+      "params": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "true to show it, false to close it. Defaults to true."
+          }
+        }
       }
     }
   ]

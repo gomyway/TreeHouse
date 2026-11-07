@@ -5,6 +5,7 @@ import { findGame, listGames, loadGameHtml, type GameMeta } from "./game/catalog
 import { createGameHost, type GameHost, type GameState } from "./game/runner";
 import type { Player, RoomEvent, Screen } from "./room/model";
 import { playerName, useRoom } from "./room/useRoom";
+import { CameraCheck } from "./ui/CameraCheck";
 import { AuthoringView, GameView } from "./ui/GameView";
 import { Lobby, StatusPill } from "./ui/Lobby";
 import { QuestionView, type Answer, type Question } from "./ui/QuestionView";
@@ -16,6 +17,7 @@ import { QuestionView, type Answer, type Question } from "./ui/QuestionView";
 type View =
   | { kind: "lobby" }
   | { kind: "question" }
+  | { kind: "camera" }
   | { kind: "game"; meta: GameMeta; html: string }
   | { kind: "authoring"; prompt: string; status: string; elapsedMs: number; error?: string };
 
@@ -31,15 +33,19 @@ const GUIDES: Record<View["kind"], string> = {
     "A game is running on the TV and phones. The game speaks its own lines; do not repeat them. Use read_game_state to answer " +
     "questions about the score or what is happening. Pass the viewer's instructions for the game (skip, reveal, make it harder, " +
     "add a bot, change the topic) to tell_game verbatim. stop_game returns to the lobby.",
+  camera:
+    "A camera check is on screen: it shows what the television's motion tracking sees for each player standing in front of it. " +
+    "Encourage people to try both arms up, one arm, a squat, a swipe, arms wide and leaning. back_to_lobby or camera_check with on=false ends it.",
   authoring:
     "A new game is being written from the viewer's idea; it takes one to three minutes and starts by itself when ready. Keep the room " +
     "entertained in a sentence or two if asked, but do not call other tools until it is ready.",
 };
 
 const TOOLS: Record<View["kind"], string[]> = {
-  lobby: ["read_join_info", "list_games", "start_game", "create_game", "ask_room", "kick_player"],
+  lobby: ["read_join_info", "list_games", "start_game", "create_game", "ask_room", "kick_player", "camera_check"],
   question: ["read_join_info", "read_answers", "close_question", "back_to_lobby", "kick_player"],
   game: ["read_join_info", "read_game_state", "tell_game", "stop_game", "kick_player"],
+  camera: ["camera_check", "back_to_lobby", "read_join_info"],
   authoring: ["read_join_info", "back_to_lobby"],
 };
 
@@ -337,6 +343,18 @@ export default function App() {
     return { detail: "Started writing the game. It takes one to three minutes and starts by itself.", say: "Ooh, I like it. Give me a minute or two to build that." };
   });
 
+  // ---- Camera check ----
+  useLittleTool<{ on?: unknown }>("camera_check", ({ on }) => {
+    const turnOn = on === undefined ? true : on === true || on === "true";
+    if (!turnOn) {
+      if (viewRef.current.kind === "camera") toLobby();
+      return { detail: "Camera check closed." };
+    }
+    if (viewRef.current.kind === "game") return { ok: false, detail: "Stop the game first." };
+    setView({ kind: "camera" });
+    return { detail: "Camera check is on. It shows each player slot left to right with every move it recognizes." };
+  });
+
   // ---- Remote ----
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -379,6 +397,8 @@ export default function App() {
 
       {view.kind === "question" && question ? (
         <QuestionView question={question} players={activePlayers} />
+      ) : view.kind === "camera" ? (
+        <CameraCheck />
       ) : view.kind === "authoring" ? (
         <AuthoringView prompt={view.prompt} status={view.status} elapsedMs={view.elapsedMs} error={view.error} />
       ) : (

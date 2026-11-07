@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@kabletv/little-motion": "^0.39.1",
     "@kabletv/little-react": "^0.39.1",
     "@kabletv/little-sdk": "^0.39.1",
     "qrcode": "^1.5.4",
