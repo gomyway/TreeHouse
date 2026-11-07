@@ -3,7 +3,7 @@ import { colorFor, type Player, type RoomEvent, type RoomTransport, type Screen 
 // A stand-in room for working on the TV without phones or a relay: open the app with
 // ?fake=5 and five pretend players join, then answer whatever screen they are sent.
 
-const NAMES = ["Ana", "Ben", "Chen", "Dee", "Eli", "Fay", "Gus", "Hana", "Ivo", "Jun", "Kai", "Lia"];
+const NAMES = ["Ana", "Ben", "Ana", "Dee", "Eli", "Fay", "Gus", "Hana", "Ivo", "Jun", "Kai", "Lia"];
 
 export function createFakeRoom(
   count: number,

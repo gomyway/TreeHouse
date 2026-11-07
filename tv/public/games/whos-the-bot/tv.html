@@ -23,10 +23,13 @@
   .mode { font-size: 40px; font-weight: 800; letter-spacing: -.5px; }
   .mode b { color: var(--bot); }
   .mode.human b { color: var(--human); }
-  .teams { margin-left: auto; display: flex; align-items: center; gap: 18px; font-size: 28px; font-weight: 700; }
-  .teams .h { color: var(--human); } .teams .b { color: var(--bot); }
-  .bar { width: 360px; height: 18px; border-radius: 9px; background: var(--bot); overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--human); transition: width .8s; }
+  .leaders { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .leaders .chip { display: flex; align-items: center; gap: 12px; padding: 10px 20px 10px 12px; border-radius: 999px;
+    background: var(--card); border: 2px solid var(--line); font-size: 28px; font-weight: 700; }
+  .leaders .chip .rk { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 22px;
+    background: #0b0f0c; color: var(--ink2); }
+  .leaders .chip:first-child { border-color: var(--human); } .leaders .chip:first-child .rk { background: var(--human); color: #1a1405; }
+  .leaders .chip .pts { color: var(--ink2); font-variant-numeric: tabular-nums; }
   .ring { width: 96px; height: 96px; position: relative; flex: none; }
   .ring svg { transform: rotate(-90deg); }
   .ring span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -69,11 +72,21 @@
   .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px; }
   .big { font-size: 120px; font-weight: 900; letter-spacing: -3px; line-height: 1; }
   .big .b { color: var(--bot); } .big .h { color: var(--human); }
-  .awards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; width: 100%; }
-  .award { background: var(--card); border: 2px solid var(--line); border-radius: 28px; padding: 32px; text-align: left; }
-  .award .k { font-size: 24px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
-  .award .v { font-size: 52px; font-weight: 800; margin-top: 10px; }
-  .award .n { font-size: 28px; color: var(--ink2); margin-top: 6px; }
+  .final { flex: 1; display: grid; grid-template-columns: 1fr 560px; gap: 40px; min-height: 0; }
+  .ranking { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+  .ranking li { display: grid; grid-template-columns: 72px 1fr auto; align-items: center; gap: 20px; padding: 14px 28px;
+    border-radius: 20px; background: var(--card); border: 2px solid var(--line); font-size: 40px; font-weight: 700;
+    animation: pop .45s cubic-bezier(.2,1.4,.4,1) both; }
+  .ranking li .rk { font-size: 36px; color: var(--ink3); text-align: center; }
+  .ranking li .pts { font-variant-numeric: tabular-nums; color: var(--ink2); }
+  .ranking li.first { border-color: var(--human); font-size: 52px; background: linear-gradient(90deg, rgba(255,193,69,.18), var(--card)); }
+  .ranking li.first .rk { color: var(--human); }
+  .ranking .more { font-size: 28px; color: var(--ink3); padding-left: 28px; }
+  .awards { display: flex; flex-direction: column; gap: 20px; }
+  .award { background: var(--card); border: 2px solid var(--line); border-radius: 24px; padding: 24px 28px; text-align: left; }
+  .award .k { font-size: 22px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
+  .award .v { font-size: 44px; font-weight: 800; margin-top: 6px; }
+  .award .n { font-size: 24px; color: var(--ink2); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -156,15 +169,19 @@ function cannedAnswer(existing) {
 }
 
 // ---------- scores & state ----------
-function teamTotals() {
-  let h = 0, b = 0;
-  for (const [id, v] of score) (isBot(id) ? (b += v) : (h += v));
-  return { h, b };
+// Everyone who has played (still connected or not), ranked by points; ties share a rank.
+function ranking() {
+  const list = joinOrder.map((id) => players.get(id)).filter(Boolean)
+    .map((p) => ({ id: p.id, name: p.name, pts: score.get(p.id) ?? 0, connected: p.connected }))
+    .filter((p) => p.connected || p.pts > 0)
+    .sort((a, b) => b.pts - a.pts);
+  let rank = 0, prev = null;
+  list.forEach((p, i) => { if (p.pts !== prev) { rank = i + 1; prev = p.pts; } p.rank = rank; });
+  return list;
 }
 function scoreboard() {
   const out = {};
-  for (const p of active()) out[p.name] = score.get(p.id) ?? 0;
-  for (const bt of bots) if (bt.revealed) out[bt.name + " (bot)"] = score.get(bt.id) ?? 0;
+  for (const p of ranking()) out[p.name] = p.pts;
   return out;
 }
 function postState(summary) { send({ type: "state", summary, phase, scores: scoreboard() }); }
@@ -332,7 +349,7 @@ function endVote() {
   for (const [, l] of r.guess) add(r.guessCount, l, 1);
   const vs = voters();
   if (r.mode === "bot") {
-    for (const [l, n] of r.funnyCount) { const c = by(l); if (c) { add(score, c.author, 100 * n); if (!isBot(c.author)) add(funnyTotal, c.author, n); } }
+    for (const [l, n] of r.funnyCount) { const c = by(l); if (c && !isBot(c.author)) { add(score, c.author, 100 * n); add(funnyTotal, c.author, n); } }
     for (const [voter, l] of r.guess) {
       const c = by(l); if (!c) continue;
       if (isBot(c.author)) { add(score, voter, 200); add(huntTotal, voter, 1); } else add(taggedTotal, c.author, 1);
@@ -340,13 +357,12 @@ function endVote() {
     for (const b of r.bots) {
       const c = cardOf(b); if (!c) continue;
       const catchers = [...r.guess.values()].filter((l) => l === c.letter).length;
-      add(score, b, 100 * Math.max(0, vs.length - catchers));
       if (vs.length && catchers / vs.length >= 0.34) caught.push(c.text);
     }
   } else {
     for (const [voter, l] of r.guess) {
       const c = by(l); if (!c) continue;
-      if (!isBot(c.author)) { add(score, voter, 200); add(huntTotal, voter, 1); } else add(score, c.author, 100);
+      if (!isBot(c.author)) { add(score, voter, 200); add(huntTotal, voter, 1); }
     }
     for (const w of r.writers) {
       const c = cardOf(w); if (!c) continue;
@@ -381,10 +397,11 @@ function endVote() {
 
 function finish() {
   token++; phase = "final";
-  const { h, b } = teamTotals();
+  const ranked = ranking();
   const top = (m) => { let best = null, v = 0; for (const [id, n] of m) if (players.has(id) && n > v) { best = id; v = n; } return best ? { name: nameOf(best), n: v } : null; };
-  round = { awards: { funny: top(funnyTotal), hunter: top(huntTotal), robotic: top(taggedTotal) }, h, b };
-  const winner = h === b ? "It's a tie between humans and bots!" : h > b ? `Humanity wins, ${h} to ${b}!` : `The bots win, ${b} to ${h}. I'm so proud of them.`;
+  round = { awards: { funny: top(funnyTotal), hunter: top(huntTotal), robotic: top(taggedTotal) }, ranked };
+  const winners = ranked.filter((p) => p.rank === 1 && p.pts > 0).map((p) => p.name);
+  const winner = winners.length ? `${and(winners)} ${winners.length > 1 ? "win" : "wins"} with ${ranked[0].pts} points!` : "Nobody scored. The bots are very pleased.";
   const a = round.awards;
   const awardsLine = [a.funny && `Funniest human: ${a.funny.name}.`, a.robotic && `Most robotic human: ${a.robotic.name}.`].filter(Boolean).join(" ");
   send({ type: "say", text: `${winner} ${awardsLine}` });
@@ -398,7 +415,7 @@ function finish() {
 function trunc(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 function screenFor(id) {
   const r = round;
-  if (phase === "final") return { kind: "info", title: "Game over", body: `You scored ${score.get(id) ?? 0}. Look at the TV.` };
+  if (phase === "final") { const me = ranking().find((p) => p.id === id); return { kind: "info", title: me ? `#${me.rank} with ${me.pts} points` : "Game over", body: "Look at the TV." }; }
   if (!r || phase === "intro") return { kind: "info", title: "Who's the Bot?", body: "Get ready…" };
   const writer = r.writers?.includes(id);
   if (phase === "write") {
@@ -431,11 +448,10 @@ function ring() {
 }
 function header() {
   const r = round;
-  const { h, b } = teamTotals();
-  const pct = h + b ? Math.round((h / (h + b)) * 100) : 50;
+  const top3 = ranking().filter((p) => p.pts > 0).slice(0, 3);
   const mode = r && r.mode === "human" ? `<div class="mode human">Find the <b>Human</b></div>` : `<div class="mode">Find the <b>Bot</b></div>`;
   return `<header><div><div class="kicker">Round ${roundIdx + 1} of ${plan.length}</div>${mode}</div>
-    <div class="teams"><span class="h">Humans ${h}</span><div class="bar"><i style="width:${pct}%"></i></div><span class="b">${b} Bots</span></div>${ring()}</header>`;
+    <div class="leaders">${top3.map((p) => `<span class="chip"><span class="rk">${p.rank}</span>${esc(p.name)} <span class="pts">${p.pts}</span></span>`).join("")}</div>${ring()}</header>`;
 }
 function cardHtml(c) {
   const r = round;
@@ -454,17 +470,20 @@ function cardHtml(c) {
   const meta = reveal ? `${stars ? `<span class="stars">★ ${stars}</span>` : ""}${tags ? `<span>${r.mode === "bot" ? "🤖" : "🔎"} ${tags}</span>` : ""}${who ? `<span class="who">${esc(who)}</span>` : ""}` : "";
   return `<div class="cardw"><div class="card${flipped ? " flipped" : ""}${cls}">
       <div class="face"><span class="letter">${c.letter}</span><div class="txt">${esc(c.text)}</div><div class="meta">${bot && flipped ? "" : meta}</div></div>
-      <div class="face back"><span class="robot">🤖</span><div class="txt">${esc(c.text)}</div><div class="meta"><span class="who">BOT · ${esc(nameOf(c.author))}</span>${tags && r.mode === "bot" ? `<span>caught by ${tags}</span>` : ""}</div></div>
+      ${bot ? `<div class="face back"><span class="robot">🤖</span><div class="txt">${esc(c.text)}</div><div class="meta"><span class="who">BOT · ${esc(nameOf(c.author))}</span>${tags && r.mode === "bot" ? `<span>caught by ${tags}</span>` : ""}</div></div>` : ""}
     </div></div>`;
 }
 function render() {
   const r = round;
   if (phase === "final") {
     const a = r.awards;
-    const winner = r.h === r.b ? `<span class="h">Humans</span> & <span class="b">Bots</span> tie` : r.h > r.b ? `<span class="h">Humanity</span> wins` : `The <span class="b">Bots</span> win`;
-    const aw = (k, x, unit) => `<div class="award"><div class="k">${k}</div><div class="v">${x ? esc(x.name) : "Nobody"}</div><div class="n">${x ? `${x.n} ${unit}` : ""}</div></div>`;
-    app.innerHTML = `<div class="center"><div class="kicker">Final score · Humans ${r.h} · Bots ${r.b}</div><div class="big">${winner}</div>
-      <div class="awards">${aw("Funniest human", a.funny, "funny votes")}${aw("Best bot hunter", a.hunter, "catches")}${aw("Most robotic human", a.robotic, "times mistaken for a bot")}</div></div>`;
+    const aw = (k, x, one, many) => `<div class="award"><div class="k">${k}</div><div class="v">${x ? esc(x.name) : "Nobody"}</div><div class="n">${x ? `${x.n} ${x.n === 1 ? one : many}` : ""}</div></div>`;
+    const shown = r.ranked.slice(0, 9);
+    const rows = shown.map((p, i) => `<li class="${p.rank === 1 && p.pts > 0 ? "first" : ""}" style="animation-delay:${(shown.length - i) * 120}ms"><span class="rk">${p.rank}</span><span>${esc(p.name)}</span><span class="pts">${p.pts}</span></li>`).join("");
+    const more = r.ranked.length > shown.length ? `<li class="more">+ ${r.ranked.length - shown.length} more on their phones</li>` : "";
+    app.innerHTML = `<header><div><div class="kicker">Who's the Bot? · Final</div><div class="mode">Leaderboard</div></div></header>
+      <div class="final"><ol class="ranking">${rows}${more}</ol>
+      <div class="awards">${aw("Funniest human", a.funny, "funny vote", "funny votes")}${aw("Best bot hunter", a.hunter, "bot caught", "bots caught")}${aw("Most robotic human", a.robotic, "time mistaken for a bot", "times mistaken for a bot")}</div></div>`;
     return;
   }
   if (!r) return;

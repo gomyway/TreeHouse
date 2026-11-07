@@ -30,17 +30,25 @@ export function useRoom(onEvent: (e: RoomEvent, players: Player[]) => void): Roo
   onEventRef.current = onEvent;
 
   useEffect(() => {
-    const apply = (e: RoomEvent) => {
+    const apply = (incoming: RoomEvent) => {
+      let e = incoming;
       let next = playersRef.current;
-      if (e.type === "sync") {
-        next = e.players;
-      } else if (e.type === "join" || e.type === "rejoin") {
-        const existing = next.find((p) => p.id === e.player.id);
-        next = existing
-          ? next.map((p) => (p.id === e.player.id ? { ...p, name: e.player.name || p.name, connected: true } : p))
-          : [...next, e.player];
-      } else if (e.type === "leave") {
-        next = next.filter((p: Player) => p.id !== e.playerId);
+      if (incoming.type === "sync") {
+        next = [];
+        for (const p of incoming.players) next.push({ ...p, name: uniqueName(p.name, p.id, next) });
+      } else if (incoming.type === "join" || incoming.type === "rejoin") {
+        const id = incoming.player.id;
+        if (next.some((p) => p.id === id)) {
+          next = next.map((p) => (p.id === id ? { ...p, connected: true } : p));
+        } else {
+          // Two phones called "Leo" become "Leo" and "Leo 2" everywhere: lobby, games, scores.
+          const player = { ...incoming.player, name: uniqueName(incoming.player.name, id, next) };
+          next = [...next, player];
+          e = { ...incoming, player };
+        }
+      } else if (incoming.type === "leave") {
+        const id = incoming.playerId;
+        next = next.filter((p: Player) => p.id !== id);
       }
       if (next !== playersRef.current) {
         playersRef.current = next;
@@ -74,6 +82,13 @@ export function useRoom(onEvent: (e: RoomEvent, players: Player[]) => void): Roo
   }, []);
 
   return { status, code, joinUrl, players, transport };
+}
+
+function uniqueName(name: string, id: PlayerId, others: Player[]): string {
+  const base = name.trim() || "Player";
+  const taken = new Set(others.filter((p) => p.id !== id).map((p) => p.name.toLowerCase()));
+  if (!taken.has(base.toLowerCase())) return base;
+  for (let n = 2; ; n++) if (!taken.has(`${base} ${n}`.toLowerCase())) return `${base} ${n}`;
 }
 
 export function playerName(players: Player[], id: PlayerId): string {
