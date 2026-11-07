@@ -402,7 +402,7 @@ function screenFor(id) {
   if (!r || phase === "intro") return { kind: "info", title: "Who's the Bot?", body: "Get ready…" };
   const writer = r.writers?.includes(id);
   if (phase === "write") {
-    if (writer && !r.answers.has(id)) return { kind: "text", prompt: r.prompt, maxLength: 60, placeholder: "Be yourself. Or don't." };
+    if (writer && !r.answers.has(id)) return { kind: "text", prompt: r.prompt, maxLength: 60, placeholder: "Be yourself. Or don't.", deadline: r.deadline - 1500 };
     if (writer) return { kind: "info", title: "Sent.", body: r.mode === "human" ? "Act natural. They'll be hunting for you." : "Look at the TV." };
     return { kind: "info", title: r.mode === "human" ? "You're a detective" : "You're a judge this round", body: r.mode === "human" ? "One of the answers is a human. Get ready to find them." : "Vote is coming. Read along on the TV." };
   }
@@ -410,8 +410,8 @@ function screenFor(id) {
     const own = cardOf(id)?.letter;
     const items = r.cards.filter((c) => c.letter !== own).map((c) => ({ id: c.letter, label: `${c.letter} · ${trunc(c.text, 34)}` }));
     if (r.mode === "human" && writer) return { kind: "info", title: "Stay cool.", body: "The detectives are hunting for you." };
-    if (r.mode === "bot" && !r.funny.has(id)) return { kind: "buttons", prompt: "Which one is the funniest?", items };
-    if (!r.guess.has(id)) return { kind: "buttons", prompt: r.mode === "bot" ? "Which one is the bot? 🤖" : "Which one is the human?", items };
+    if (r.mode === "bot" && !r.funny.has(id)) return { kind: "buttons", prompt: "Which one is the funniest?", items, deadline: r.deadline - 1000 };
+    if (!r.guess.has(id)) return { kind: "buttons", prompt: r.mode === "bot" ? "Which one is the bot? 🤖" : "Which one is the human?", items, deadline: r.deadline - 1000 };
     return { kind: "info", title: "Locked in.", body: "Look at the TV." };
   }
   if (phase === "reveal") return { kind: "info", title: "Look at the TV!", body: `You have ${score.get(id) ?? 0} points.` };
