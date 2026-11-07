@@ -42,6 +42,7 @@ These set how the TV page looks and how the host talks. The harness checks them 
   black or white for shadows. One accent only.
 
   | Palette | `--bg` | `--ink` | `--muted` | `--accent` | Mood |
+- The TV host may inject a base stylesheet first (Satoshi @font-face, the palette as --bg/--ink/--muted/--accent, --surface, --font, --display/--body/--tiny in vh, a :focus-visible ring). Reference those variables; define them yourself at :root as well, since the bundle must also work without the host. --surface is one step off --bg (6-8% lighter on dark palettes, darker on Paper); --font is "Satoshi", system-ui, sans-serif.
   |---|---|---|---|---|---|
   | Noir | `#0e0e10` ink-black | `#e8e0cf` bone | `#6e7480` slate | `#e5322d` signal red | crime, bluffing, accusations, tension |
   | Broadcast | `#0b1630` deep navy | `#ffffff` white | `#8b97ab` steel | `#ffb000` amber | quiz show, trivia, a live studio |

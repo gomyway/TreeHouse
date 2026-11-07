@@ -55,6 +55,7 @@ These override anything in the request that conflicts with them.
 These set how the TV page looks and how the host talks.
 - One palette, picked for the theme. Choose ONE of these six, write its name in meta.palette, define its four tokens at :root and colour everything with them, plus pure black or white for shadows. One accent only.
   - Noir: --bg #0e0e10 (ink-black), --ink #e8e0cf (bone), --muted #6e7480 (slate), --accent #e5322d (signal red). Crime, bluffing, accusations, tension.
+- The host may inject --bg/--ink/--muted/--accent, --surface, --font and --display/--body/--tiny (vh) first; reference them and also define them at :root yourself so the page works alone.
   - Broadcast: --bg #0b1630 (deep navy), --ink #ffffff (white), --muted #8b97ab (steel), --accent #ffb000 (amber). Quiz show, trivia, a live studio.
   - Paper: --bg #f2ece0 (warm off-white), --ink #16161a (near-black), --muted #77736b (grey), --accent #2747d6 (cobalt). Words, drawing, calm daytime (the light theme).
   - Arcade: --bg #08090b (near-black), --ink #ffffff (white), --muted #7c8088 (grey), --accent #00e5ff (electric cyan). Reflexes, speed, motion, retro.
