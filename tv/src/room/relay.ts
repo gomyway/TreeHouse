@@ -1,19 +1,25 @@
+import type { RelayToTv, TvToRelay } from "../../../shared/protocol";
 import { colorFor, type Player, type PlayerId, type RoomEvent, type RoomStatus, type RoomTransport, type Screen } from "./model";
 
-// The TV's connection to the relay. Wire shapes follow PLAN.md ("Join flow"):
-//   TV opens  wss://<relay>/host            → relay sends { type: "room", code, hostToken? }
-//   relay → TV  { type: "join" | "rejoin", player } · { type: "leave", player | playerId }
-//               { type: "input", player, data } · { type: "sensor", player, kind, data }
-//   TV → relay  { type: "screen", to, screen } · { type: "kick", player }
-// When shared/protocol.ts lands, swap the loose parsing below for its types. Nothing
-// outside this file knows the wire format.
-
-type Wire = Record<string, unknown>;
+// The TV's connection to the relay, typed by shared/protocol.ts. Nothing outside this
+// file knows the wire format: it maps RelayToTv frames onto RoomEvents and RoomTransport
+// calls onto TvToRelay frames.
+//   TV opens  <relay>/host  (reattach: /host?code=ABCD&token=<hostToken>)
+//   relay → TV  room { code, hostToken, players[] } · join · rejoin · leave · input · sensor · error
+//   TV → relay  screen · state · ask · play · kick (all routed by `to`)
 
 export interface RelayRoom extends RoomTransport {
   readonly code: string | null;
   readonly joinUrl: string | null;
 }
+
+const toPlayer = (p: { id: string; name: string; connected?: boolean }): Player => ({
+  id: p.id,
+  name: String(p.name || "Player").slice(0, 24),
+  connected: p.connected ?? true,
+  joinedAt: Date.now(),
+  color: colorFor(p.id),
+});
 
 export function connectRelay(
   relayUrl: string,
@@ -21,6 +27,7 @@ export function connectRelay(
     onEvent: (e: RoomEvent) => void;
     onStatus: (s: RoomStatus) => void;
     onRoom: (code: string, joinUrl: string) => void;
+    onError?: (message: string) => void;
   },
 ): RelayRoom {
   const wsBase = relayUrl.replace(/^http/, "ws").replace(/\/+$/, "");
@@ -35,37 +42,46 @@ export function connectRelay(
   let retry: number | undefined;
   const outbox: string[] = [];
 
-  const send = (msg: Wire) => {
+  const send = (msg: TvToRelay) => {
     const s = JSON.stringify(msg);
     if (ws?.readyState === WebSocket.OPEN) ws.send(s);
-    else outbox.push(s);
+    else if (outbox.length < 200) outbox.push(s);
   };
 
-  const toPlayer = (raw: unknown): Player | null => {
-    if (typeof raw === "string") return { id: raw, name: raw, connected: true, joinedAt: Date.now(), color: colorFor(raw) };
-    if (!raw || typeof raw !== "object") return null;
-    const r = raw as Wire;
-    const id = String(r.id ?? r.playerId ?? "");
-    if (!id) return null;
-    const name = String(r.name ?? "Player").slice(0, 24);
-    return { id, name, connected: true, joinedAt: Date.now(), color: colorFor(id) };
-  };
-  const idOf = (m: Wire): PlayerId | null => {
-    const p = m.player ?? m.playerId ?? m.from;
-    if (typeof p === "string") return p;
-    if (p && typeof p === "object") return String((p as Wire).id ?? "") || null;
-    return null;
+  const handle = (m: RelayToTv) => {
+    switch (m.type) {
+      case "room":
+        code = m.code;
+        hostToken = m.hostToken;
+        joinUrl = `${httpBase}/?c=${encodeURIComponent(code)}`;
+        handlers.onRoom(code, joinUrl);
+        handlers.onStatus("open");
+        // A reattach keeps the lobby: the relay tells us who is still here.
+        handlers.onEvent({ type: "sync", players: (m.players ?? []).map(toPlayer) });
+        break;
+      case "join":
+      case "rejoin":
+        handlers.onEvent({ type: m.type, player: toPlayer(m.player) });
+        break;
+      case "leave":
+        handlers.onEvent({ type: "leave", playerId: m.player.id });
+        break;
+      case "input":
+        handlers.onEvent({ type: "input", playerId: m.player, data: m.data });
+        break;
+      case "sensor":
+        handlers.onEvent({ type: "sensor", playerId: m.player, kind: m.kind, data: m.data });
+        break;
+      case "error":
+        handlers.onError?.(m.message);
+        break;
+    }
   };
 
   const open = () => {
-    const params = new URLSearchParams();
-    if (code && hostToken) {
-      params.set("code", code);
-      params.set("token", hostToken);
-    }
-    const qs = params.toString();
+    const qs = code && hostToken ? `?code=${encodeURIComponent(code)}&token=${encodeURIComponent(hostToken)}` : "";
     handlers.onStatus(attempt === 0 ? "connecting" : "reconnecting");
-    const sock = new WebSocket(`${wsBase}/host${qs ? `?${qs}` : ""}`);
+    const sock = new WebSocket(`${wsBase}/host${qs}`);
     ws = sock;
 
     sock.onopen = () => {
@@ -73,48 +89,16 @@ export function connectRelay(
       while (outbox.length) sock.send(outbox.shift()!);
     };
     sock.onmessage = (ev) => {
-      let m: Wire;
       try {
-        m = JSON.parse(String(ev.data));
+        handle(JSON.parse(String(ev.data)) as RelayToTv);
       } catch {
-        return;
-      }
-      switch (m.type) {
-        case "room": {
-          code = String(m.code ?? "");
-          hostToken = typeof m.hostToken === "string" ? m.hostToken : typeof m.token === "string" ? m.token : hostToken;
-          joinUrl = typeof m.joinUrl === "string" ? m.joinUrl : `${httpBase}/?c=${encodeURIComponent(code)}`;
-          handlers.onRoom(code, joinUrl);
-          handlers.onStatus("open");
-          break;
-        }
-        case "join":
-        case "rejoin": {
-          const player = toPlayer(m.player);
-          if (player) handlers.onEvent({ type: m.type, player });
-          break;
-        }
-        case "leave": {
-          const id = idOf(m);
-          if (id) handlers.onEvent({ type: "leave", playerId: id });
-          break;
-        }
-        case "input": {
-          const id = idOf(m);
-          if (id) handlers.onEvent({ type: "input", playerId: id, data: m.data });
-          break;
-        }
-        case "sensor": {
-          const id = idOf(m);
-          if (id) handlers.onEvent({ type: "sensor", playerId: id, kind: String(m.kind ?? ""), data: m.data });
-          break;
-        }
+        /* ignore malformed frames */
       }
     };
     sock.onclose = () => {
       if (ws !== sock || closed) return;
       handlers.onStatus("reconnecting");
-      // Reattach quickly: the relay holds the room for 60 s after the TV drops.
+      // Reattach quickly: the relay holds the room for TV_GRACE_MS after the TV drops.
       const delay = Math.min(1000 * 2 ** attempt, 8000);
       attempt += 1;
       retry = window.setTimeout(open, delay);
@@ -133,8 +117,17 @@ export function connectRelay(
     sendScreen(to: PlayerId | "*", screen: Screen) {
       send({ type: "screen", to, screen });
     },
+    ask(to, kind, on, hz) {
+      send({ type: "ask", to, kind, on, hz });
+    },
+    play(to, text, url) {
+      send({ type: "play", to, text, url });
+    },
+    sendState(to, payload) {
+      send({ type: "state", to, payload });
+    },
     kick(playerId: PlayerId) {
-      send({ type: "kick", player: playerId });
+      send({ type: "kick", to: playerId });
     },
     close() {
       closed = true;

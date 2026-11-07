@@ -1,6 +1,9 @@
-// The TV app's own view of the room. The relay wire format lives in ./relay.ts and is
-// mapped onto these types there, so a protocol change touches one file.
+import type { Screen, SensorKind } from "../../../shared/protocol";
 
+// The TV app's own view of the room. The relay wire format (shared/protocol.ts) is mapped
+// onto these types in ./relay.ts, so a protocol change touches one file.
+
+export type { Screen, SensorKind };
 export type PlayerId = string;
 
 export interface Player {
@@ -12,26 +15,26 @@ export interface Player {
   color: string;
 }
 
-/** Declarative screens a phone renders (PLAN.md "Screens are declarative"). */
-export type Screen =
-  | { kind: "info"; title: string; body?: string }
-  | { kind: "buttons"; prompt?: string; items: { id: string; label: string }[] }
-  | { kind: "text"; prompt: string; maxLength?: number }
-  | { kind: "pad"; prompt?: string }
-  | { kind: "custom"; html: string };
-
 export type RoomStatus = "connecting" | "open" | "reconnecting" | "offline";
 
 export type RoomEvent =
+  /** the full player list, sent when the TV (re)attaches to its room */
+  | { type: "sync"; players: Player[] }
   | { type: "join"; player: Player }
   | { type: "rejoin"; player: Player }
   | { type: "leave"; playerId: PlayerId }
   | { type: "input"; playerId: PlayerId; data: unknown }
-  | { type: "sensor"; playerId: PlayerId; kind: string; data: unknown };
+  | { type: "sensor"; playerId: PlayerId; kind: SensorKind; data: unknown };
 
 export interface RoomTransport {
   /** Sends a screen to one player or to everyone ("*"). */
   sendScreen(to: PlayerId | "*", screen: Screen): void;
+  /** Turns a phone sensor stream on or off (the phone shows a tap-to-allow first). */
+  ask(to: PlayerId | "*", kind: SensorKind, on: boolean, hz?: number): void;
+  /** Speaks text or plays a sound on phones. */
+  play(to: PlayerId | "*", text?: string, url?: string): void;
+  /** Pushes app state to phones (custom screens receive it). */
+  sendState(to: PlayerId | "*", payload: unknown): void;
   /** Disconnects a player from the room. */
   kick(playerId: PlayerId): void;
   close(): void;

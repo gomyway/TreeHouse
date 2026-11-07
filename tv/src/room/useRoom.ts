@@ -32,7 +32,9 @@ export function useRoom(onEvent: (e: RoomEvent, players: Player[]) => void): Roo
   useEffect(() => {
     const apply = (e: RoomEvent) => {
       let next = playersRef.current;
-      if (e.type === "join" || e.type === "rejoin") {
+      if (e.type === "sync") {
+        next = e.players;
+      } else if (e.type === "join" || e.type === "rejoin") {
         const existing = next.find((p) => p.id === e.player.id);
         next = existing
           ? next.map((p) => (p.id === e.player.id ? { ...p, name: e.player.name || p.name, connected: true } : p))
@@ -65,6 +67,7 @@ export function useRoom(onEvent: (e: RoomEvent, players: Player[]) => void): Roo
         setCode(c);
         setJoinUrl(u);
       },
+      onError: (message) => console.warn("[relay]", message),
     });
     setTransport(room);
     return () => room.close();

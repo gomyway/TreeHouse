@@ -47,6 +47,9 @@ export function createFakeRoom(
         later(1200 + Math.random() * 4000, () => answer(p, screen));
       }
     },
+    ask() {},
+    play() {},
+    sendState() {},
     kick(playerId) {
       const i = players.findIndex((p) => p.id === playerId);
       if (i >= 0) players.splice(i, 1);
