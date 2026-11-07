@@ -5,6 +5,7 @@ import { findGame, listGames, loadGameHtml, type GameMeta } from "./game/catalog
 import { allMemories, pickHighlights, remember, type Moment } from "./game/memories";
 import { playersContext, postMemories, tagMoments } from "./game/memoriesSync";
 import { createGameHost, type GameHost, type GameState } from "./game/runner";
+import { injectTheme } from "./game/theme";
 import type { Player, RoomEvent, Screen } from "./room/model";
 import { playerName, useRoom } from "./room/useRoom";
 import { CameraCheck, type CameraSet } from "./ui/CameraCheck";
@@ -201,7 +202,8 @@ export default function App() {
   }, []);
 
   const startGame = useCallback(async (meta: GameMeta) => {
-    const html = await loadGameHtml(meta);
+    // The host theme kit goes first in the bundle's <head>: shared fonts, palette and sizes.
+    const html = await injectTheme(await loadGameHtml(meta), meta.palette);
     hostRef.current?.dispose();
     hostRef.current = null;
     sessionMoments.current = [];

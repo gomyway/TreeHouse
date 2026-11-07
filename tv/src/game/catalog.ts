@@ -13,6 +13,8 @@ export interface GameMeta {
   minPlayers?: number;
   maxPlayers?: number;
   createdAt?: string;
+  /** palette id from the authoring kit; the host theme maps it to --bg/--ink/... */
+  palette?: string;
   /** false: the game can start with nobody joined by phone (e.g. camera games) */
   phonesRequired?: boolean;
   prompt?: string;
