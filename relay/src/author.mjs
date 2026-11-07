@@ -1,12 +1,20 @@
-// Authoring manager: POST /author { prompt, context? } → { id, meta }. Claude writes a game bundle
-// (meta.json + tv.html) against the contract in ../../PLAN.md "Game bundle"; we validate it, retry
-// once with the errors fed back, and store it in R2. AUTHOR_FAKE skips the API and stores the sample.
+// Authoring manager. Claude writes a game bundle (meta.json + tv.html) against the contract in
+// ../../PLAN.md "Game bundle"; we validate it, retry once with the errors fed back, and store it in R2.
+// AUTHOR_FAKE skips the API and stores the sample (after a short delay, so the job states show).
+//   POST /author { prompt, context? }        → 202 { jobId, status: "queued" }; the AuthorJob Durable
+//                                              Object runs it and writes jobs/<jobId>.json to R2.
+//   GET  /author/:jobId                      → that job state, 404 if unknown.
+//   POST /author?wait=1 { prompt, context? } → runs inline: { id, meta } or 502 (tests, curl).
+// Why a Durable Object alarm and not ctx.waitUntil: waitUntil is cut off 30 s after the response
+// is sent, and one attempt may take 90 s. An alarm handler gets 15 minutes of wall clock.
 import Anthropic from "@anthropic-ai/sdk";
 import { SAMPLE, CORS, cjson, newId, putGame } from "./games.mjs";
 
 const DEFAULT_MODEL = "claude-opus-5-5";
 const FALLBACK_MODELS = new Set(["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5"]);
-const DEADLINE_MS = 90_000;
+const DEADLINE_MS = 90_000; // per attempt; with the one retry a job can run about 3 minutes
+const FAKE_DELAY_MS = 300;
+const JOB_RE = /^[a-z0-9]{12}$/;
 const MAX_PROMPT_CHARS = 4000;
 
 export const SYSTEM_PROMPT = `You write party games for a television. Each game is a "bundle": a meta.json and a single tv.html page. The TV loads tv.html into a sandboxed iframe (sandbox="allow-scripts", no same-origin) and bridges it to players' phones and to a voice agent. You never see the phones' code; you drive them by posting declarative screens.
@@ -114,13 +122,16 @@ export function validateBundle(text) {
 }
 
 // ---- the model call ----
-async function generate(env, prompt, context, signal) {
+// Two attempts, each with its own 90 s deadline. A failed validation retries with the errors fed
+// back; a timed-out first attempt retries with the plain request.
+async function generate(env, prompt, context, onAttempt) {
   const model = env.AUTHOR_MODEL || DEFAULT_MODEL;
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: DEADLINE_MS });
   const ask = `Write a game bundle for this request:\n\n${prompt}` +
     (context && Object.keys(context).length ? `\n\nContext from the TV (JSON):\n${JSON.stringify(context).slice(0, 4000)}` : "");
   let userText = ask, lastErrors = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await onAttempt(attempt);
     const params = {
       model,
       max_tokens: 32000,
@@ -131,7 +142,19 @@ async function generate(env, prompt, context, signal) {
     };
     // Server-side refusal fallback where the model supports it (Claude API).
     if (FALLBACK_MODELS.has(model)) { params.betas = ["server-side-fallback-2026-07-01"]; params.fallbacks = "default"; }
-    const msg = await client.beta.messages.stream(params, { signal }).finalMessage();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), DEADLINE_MS);
+    let msg;
+    try {
+      msg = await client.beta.messages.stream(params, { signal: ctrl.signal }).finalMessage();
+    } catch (e) {
+      if (!ctrl.signal.aborted) throw e;
+      lastErrors = [`attempt ${attempt} timed out after ${DEADLINE_MS / 1000} s`];
+      userText = ask;
+      continue;
+    } finally {
+      clearTimeout(timer);
+    }
     if (msg.stop_reason === "refusal") throw new Error(`model refused: ${msg.stop_details?.explanation ?? msg.stop_details?.category ?? "no details"}`);
     const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
     if (msg.stop_reason === "max_tokens") lastErrors = ["the reply was cut off at max_tokens; make tv.html shorter"];
@@ -143,45 +166,95 @@ async function generate(env, prompt, context, signal) {
     // Retry once as a fresh single-turn request carrying the failed attempt and its errors.
     userText = `${ask}\n\nYour previous attempt failed validation:\n- ${lastErrors.join("\n- ")}\n\nPrevious attempt:\n${text.slice(0, 60_000)}\n\nReply again with both fenced blocks, fixed.`;
   }
-  throw new Error(`bundle failed validation twice: ${lastErrors.join("; ")}`);
+  throw new Error(`authoring failed twice: ${lastErrors.join("; ")}`);
 }
 
-export async function handleAuthor(req, env) {
+// Generate, validate and store one bundle. Returns { id, meta, fake? }; throws with a readable message.
+async function author(env, prompt, context, onAttempt = () => {}) {
+  const id = newId();
+  const base = { id, createdAt: new Date().toISOString(), prompt };
+  if (env.AUTHOR_FAKE) {
+    await onAttempt(1);
+    await new Promise((r) => setTimeout(r, FAKE_DELAY_MS)); // lets a poller see "running"
+    const { id: _, createdAt: __, prompt: ___, ...m } = SAMPLE.meta;
+    // Run the canned reply through the same parser and validator the model's reply goes through.
+    const v = validateBundle("```json\n" + JSON.stringify(m, null, 2) + "\n```\n\n```html\n" + SAMPLE.tv + "\n```");
+    if (!v.ok) throw new Error(v.errors.join("; "));
+    const meta = { ...v.meta, ...base };
+    await putGame(env, meta, v.html);
+    return { id, meta, fake: true };
+  }
+  const { meta: gen, html } = await generate(env, prompt, context, onAttempt);
+  const meta = {
+    title: gen.title.trim().slice(0, 80), description: gen.description.trim().slice(0, 400), phases: gen.phases,
+    minPlayers: gen.minPlayers, maxPlayers: gen.maxPlayers ?? Math.max(gen.minPlayers, 12), ...base,
+  };
+  await putGame(env, meta, html);
+  return { id, meta };
+}
+
+// ---- jobs ----
+const jobKey = (jobId) => `jobs/${jobId}.json`;
+const putJob = (env, job) => env.GAMES.put(jobKey(job.jobId), JSON.stringify(job), { httpMetadata: { contentType: "application/json" } });
+const newJobId = () => newId() + newId().slice(0, 4);
+
+async function runJob(env, job, context) {
+  const save = (patch) => { Object.assign(job, patch, { updatedAt: new Date().toISOString() }); return putJob(env, job); };
+  try {
+    const { id, meta } = await author(env, job.prompt, context, (attempt) => save({ status: "running", attempt }));
+    await save({ status: "done", id, meta });
+  } catch (e) {
+    await save({ status: "error", error: String(e?.message ?? e) });
+  }
+}
+
+// One instance per job (named by jobId). fetch stores the input and sets an alarm for now; the
+// alarm runs the job. Errors are caught inside runJob, so the alarm never throws and never retries.
+export class AuthorJob {
+  constructor(ctx, env) { this.ctx = ctx; this.env = env; }
+  async fetch(req) {
+    await this.ctx.storage.put("input", await req.json());
+    await this.ctx.storage.setAlarm(Date.now());
+    return new Response(null, { status: 202 });
+  }
+  async alarm() {
+    const input = await this.ctx.storage.get("input");
+    if (!input) return;
+    try { await runJob(this.env, input.job, input.context); } finally { await this.ctx.storage.deleteAll(); }
+  }
+}
+
+// /author and /author/:jobId
+export async function handleAuthor(req, env, url) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  const parts = url.pathname.split("/").filter(Boolean); // ["author", jobId?]
+  if (parts.length === 2) {
+    if (req.method !== "GET" && req.method !== "HEAD") return cjson({ error: "GET /author/:jobId" }, 405);
+    const obj = JOB_RE.test(parts[1]) ? await env.GAMES.get(jobKey(parts[1])) : null;
+    if (!obj) return cjson({ error: "no such job" }, 404);
+    return new Response(await obj.text(), { headers: { "content-type": "application/json", "cache-control": "no-store", ...CORS } });
+  }
+  if (parts.length !== 1) return cjson({ error: "not found" }, 404);
   if (req.method !== "POST") return cjson({ error: "POST { prompt, context? }" }, 405);
   let body;
   try { body = await req.json(); } catch { return cjson({ error: "body must be JSON" }, 400); }
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim().slice(0, MAX_PROMPT_CHARS) : "";
   if (!prompt) return cjson({ error: "prompt is required" }, 400);
   const context = body.context && typeof body.context === "object" ? body.context : undefined;
+  if (!env.AUTHOR_FAKE && !env.ANTHROPIC_API_KEY) return cjson({ error: "ANTHROPIC_API_KEY is not set (wrangler secret put ANTHROPIC_API_KEY, or .dev.vars locally)" }, 500);
 
-  const id = newId();
-  const base = { id, createdAt: new Date().toISOString(), prompt };
-  if (env.AUTHOR_FAKE) {
-    const { id: _, createdAt: __, prompt: ___, ...m } = SAMPLE.meta;
-    // Run the canned reply through the same parser and validator the model's reply goes through.
-    const v = validateBundle("```json\n" + JSON.stringify(m, null, 2) + "\n```\n\n```html\n" + SAMPLE.tv + "\n```");
-    if (!v.ok) return cjson({ error: v.errors.join("; ") }, 502);
-    const meta = { ...v.meta, ...base };
-    await putGame(env, meta, v.html);
-    return cjson({ id, meta, fake: true });
+  if (url.searchParams.has("wait") && url.searchParams.get("wait") !== "0") { // synchronous
+    try { return cjson(await author(env, prompt, context)); } catch (e) { return cjson({ error: String(e?.message ?? e) }, 502); }
   }
-  if (!env.ANTHROPIC_API_KEY) return cjson({ error: "ANTHROPIC_API_KEY is not set (wrangler secret put ANTHROPIC_API_KEY, or .dev.vars locally)" }, 500);
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), DEADLINE_MS);
-  try {
-    const { meta: gen, html } = await generate(env, prompt, context, ctrl.signal);
-    const meta = {
-      title: gen.title.trim().slice(0, 80), description: gen.description.trim().slice(0, 400), phases: gen.phases,
-      minPlayers: gen.minPlayers, maxPlayers: gen.maxPlayers ?? Math.max(gen.minPlayers, 12), ...base,
-    };
-    await putGame(env, meta, html);
-    return cjson({ id, meta });
-  } catch (e) {
-    const msg = ctrl.signal.aborted ? `authoring timed out after ${DEADLINE_MS / 1000} s` : String(e?.message ?? e);
-    return cjson({ error: msg }, 502);
-  } finally {
-    clearTimeout(timer);
+  const now = new Date().toISOString();
+  const job = { jobId: newJobId(), status: "queued", prompt, createdAt: now, updatedAt: now, attempt: 0 };
+  await putJob(env, job);
+  const res = await env.AUTHOR_JOB.get(env.AUTHOR_JOB.idFromName(job.jobId)).fetch("https://job/start", { method: "POST", body: JSON.stringify({ job, context }) });
+  if (res.status !== 202) {
+    job.status = "error"; job.error = `could not start the job (${res.status})`; job.updatedAt = new Date().toISOString();
+    await putJob(env, job);
+    return cjson(job, 500);
   }
+  return cjson({ jobId: job.jobId, status: "queued" }, 202);
 }

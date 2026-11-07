@@ -107,7 +107,7 @@ TV side, through the Little SDK capabilities declared in the manifest:
 | Address | Role | Owner |
 |---|---|---|
 | `wss://<worker>/host`, `/join`, `/rooms/:code` | Relay (done) | Nelson's side |
-| `POST /author` `{ prompt, context? }` → `{ id, meta }`; `GET /author/:jobId` if it goes async | Authoring manager. Calls the Claude API with the bundle contract below; secret `ANTHROPIC_API_KEY` via `wrangler secret`. `AUTHOR_FAKE=1` returns a canned bundle for tests. | Nelson's side |
+| `POST /author` `{ prompt, context? }` → 202 `{ jobId, status }`; poll `GET /author/:jobId` (every 2 s, give up at 4 min) until `done` with `{ id, meta }`; `POST /author?wait=1` → `{ id, meta }` inline | Authoring manager. Calls the Claude API with the bundle contract below (job runs in a Durable Object alarm, state in R2 `jobs/<jobId>.json`, see relay/README.md); secret `ANTHROPIC_API_KEY` via `wrangler secret`. `AUTHOR_FAKE=1` returns a canned bundle for tests. | Nelson's side |
 | `GET /games`, `GET /games/:id/meta.json`, `GET /games/:id/tv.html` | Game storage (R2 bucket `GAMES`; only `/author` writes). A hand-written sample bundle is seeded so the TV can pull before authoring works. | Nelson's side |
 | Game runner in `tv/` | Loads `tv.html` into a sandboxed iframe and bridges it to the relay + the Little agent | Leo's side |
 

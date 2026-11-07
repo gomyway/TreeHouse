@@ -7,9 +7,9 @@ compatibility_date = "2026-10-01"
 [assets]
 directory = "../phone"
 binding = "ASSETS"
-run_worker_first = ["/host", "/join", "/health", "/rooms/*", "/games", "/games/*", "/author"]
+run_worker_first = ["/host", "/join", "/health", "/rooms/*", "/games", "/games/*", "/author", "/author/*"]
 
-# Game bundles: <id>/meta.json, <id>/tv.html, plus index.json. `wrangler dev` simulates it locally.
+# Game bundles: <id>/meta.json, <id>/tv.html, plus index.json; authoring job state in jobs/<jobId>.json. `wrangler dev` simulates it locally.
 [[r2_buckets]]
 binding = "GAMES"
 bucket_name = "little-redwood-games"
@@ -18,9 +18,18 @@ bucket_name = "little-redwood-games"
 name = "ROOM"
 class_name = "Room"
 
+# One per authoring job: its alarm runs the generation (ctx.waitUntil stops 30 s after the response).
+[[durable_objects.bindings]]
+name = "AUTHOR_JOB"
+class_name = "AuthorJob"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AuthorJob"]
 
 [observability]
 enabled = true
