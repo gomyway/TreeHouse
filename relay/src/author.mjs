@@ -6,9 +6,14 @@
 //                                              Object runs it and writes jobs/<jobId>.json to R2.
 //   GET  /author/:jobId                      → that job state, 404 if unknown.
 //   POST /author?wait=1 { prompt, context? } → runs inline: { id, meta } or 502 (tests, curl).
+// AUTHOR_MODE=runner turns the Worker into a queue instead: POST /author only stores a queued job, and
+// an external runner (a Mac running the `pi` agent in Docker) claims it, reports progress and
+// completes it through the token-guarded /author/claim, /author/:jobId/{progress,complete} and
+// /author/queue routes. Those all run inside one AuthorJob instance named "queue", one at a time,
+// so a claim and a complete can never interleave their read-modify-write of a job.
 // Why a Durable Object alarm and not ctx.waitUntil: waitUntil is cut off 30 s after the response
 // is sent, and one attempt may take 90 s. An alarm handler gets 15 minutes of wall clock.
-import { SAMPLE, CORS, cjson, newId, putGame } from "./games.mjs";
+import { SAMPLE, CORS, cjson, newId, putGame, checkMeta, ID_RE } from "./games.mjs";
 
 const FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
 // Override with env AUTHOR_MODEL. Alternatives (verify the exact id with
@@ -22,6 +27,9 @@ const DEADLINE_MS = 90_000; // per attempt; with the one retry a job can run abo
 const FAKE_DELAY_MS = 300;
 const JOB_RE = /^[a-z0-9]{12}$/;
 const MAX_PROMPT_CHARS = 4000;
+const RECLAIM_MS = 8 * 60_000; // a runner job still "running" this long after its claim is reclaimed
+const MAX_RUNNER_ATTEMPTS = 3;   // a job reclaimed this many times becomes "error" instead
+const LOG_CAP = 50;
 
 export const SYSTEM_PROMPT = `You write party games for a television. Each game is a "bundle": a meta.json and a single tv.html page. The TV loads tv.html into a sandboxed iframe (sandbox="allow-scripts", no same-origin) and bridges it to players' phones and to a voice agent. You never see the phones' code; you drive them by posting declarative screens.
 
@@ -34,6 +42,8 @@ Host → game (listen with window.addEventListener("message", e => { const m = e
 - { type: "sensor", player: playerId, kind: "gyro" | "camera" | "mic", data }  — sensor readings you asked for.
 - { type: "voice", text: string }  — optional: a viewer's spoken instruction relayed by the agent ("skip", "make it harder"). Handle it sensibly or ignore it.
 - { type: "ai_result", id: string, ok: boolean, data?, url?: string, error?: string }  — the answer to one of your "ai" / "ai_image" / "bot_answer" requests (below).
+- { type: "motion", actions: { id, side?, slot }[], held: { id, side?, slot }[], controls: { id, value, slot }[] }  — camera motion (see "Camera motion"): actions are confirmed edges (a raise just happened), held are poses held right now, controls are current continuous values. slot is the camera player slot, 0 or 1.
+- { type: "motion_status", state: string, reason?: string, slots: { slot, state }[] }  — the camera session's state; "ready" means motion events are flowing.
 Player = { id: string, name: string, connected: boolean }. Players can join mid-game, leave, and come back with the same id: send late joiners the current screen.
 
 Game → host (window.parent.postMessage(msg, "*")):
@@ -46,6 +56,11 @@ Game → host (window.parent.postMessage(msg, "*")):
 - { type: "ai", id: string, instruction: string, context?: any, schema?: JSONSchema }  — the host runs a language model for you (the Little SDK's app.compose) and answers with ai_result. data is the JSON object matching schema when you give one, otherwise text.
 - { type: "ai_image", id: string, hint: string }  — the host generates an image (app.image) and answers with ai_result; url is the image to show (set it as an <img> src at runtime).
 - { type: "bot_answer", id: string, prompt: string, humans: string[], imitate?: string[], caught?: string[], effort?: "joke" | "lazy" | "room" }  — an AI player's answer to prompt that must pass as human: humans are this round's (or the last round's) human answers so the host can match their style, imitate optional sample answers to resemble, caught answers of bots already spotted (to avoid), effort how hard to try. The host composes several candidates, rejects the ones that read as machine-written, shapes the best to the room (case, punctuation, length, typos) and answers with ai_result whose data is { text }.
+- { type: "motion_start", actions?: string[], held?: string[], controls?: string[], maxPlayers?: number }  — ask the TV camera to watch players' bodies for these action, held-pose and control ids (see "Camera motion").
+- { type: "motion_stop" }  — stop the camera session.
+
+# Camera motion
+The TV camera can watch players' bodies. Camera games are 2 players max: the camera tracks slots 0 and 1 only, so map those to players yourself and let everyone else play on their phones. Request only what the current phase needs (send a fresh motion_start when the phase changes, motion_stop when no phase needs it): over-asking makes the session flap and lose actions. Design around single-arm raises (left or right arm, reported as side): a both-arms raise is detected weakly, and squats and swipes are not detected at all. The game must stay fully playable if motion_status never reaches "ready": fall back to phone buttons for the same choices.
 
 # AI players and generated content
 You never call a model or any API yourself: the only way a game uses AI is the bridge (ai, ai_image, bot_answer, answered by ai_result), which the host runs on the Little SDK; the game has no network. For an AI player's answer that should pass as human, prefer bot_answer over raw "ai": the host then handles style matching and tell removal for you. Use "ai" for bots that play alongside the humans, generated prompts, judging or commentary. id is your own correlation id; the host just echoes it. A result takes a few seconds, so ask early (when a round opens, not when it closes) and keep your own timeout of about 15 s. If ok is false, the result never comes, or data has the wrong shape, keep going with fallback content you wrote into tv.html (canned answers, an emoji instead of an image). The game must be fully playable with every AI call failing. The host makes the call, so the game needs no API key. Never reveal a bot's identity on a phone screen unless the game wants it known. Example, a bot answering in the room's style with a canned fallback:
@@ -250,6 +265,13 @@ async function runJob(env, job, context) {
 export class AuthorJob {
   constructor(ctx, env) { this.ctx = ctx; this.env = env; }
   async fetch(req) {
+    const op = new URL(req.url).pathname.slice(1);
+    if (op !== "start") { // runner-mode queue operations, on the instance named "queue"
+      const body = await req.json();
+      let out;
+      await this.ctx.blockConcurrencyWhile(async () => { out = await queueOp(this.env, op, body); });
+      return out.status === 204 ? new Response(null, { status: 204 }) : Response.json(out.body, { status: out.status });
+    }
     await this.ctx.storage.put("input", await req.json());
     await this.ctx.storage.setAlarm(Date.now());
     return new Response(null, { status: 202 });
@@ -261,10 +283,129 @@ export class AuthorJob {
   }
 }
 
-// /author and /author/:jobId
+
+// ---- runner mode: the queue ----
+const isRunner = (env) => (env.AUTHOR_MODE || "direct").trim().toLowerCase() === "runner";
+const stamp = () => new Date().toISOString();
+
+async function readJob(env, jobId) {
+  if (!JOB_RE.test(jobId)) return null;
+  try { return await (await env.GAMES.get(jobKey(jobId)))?.json() ?? null; } catch { return null; }
+}
+
+async function listJobs(env) {
+  const keys = [];
+  let cursor;
+  do {
+    const page = await env.GAMES.list({ prefix: "jobs/", cursor, limit: 1000 });
+    for (const o of page.objects) keys.push(o.key);
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  const jobs = (await Promise.all(keys.map(async (k) => { try { return await (await env.GAMES.get(k))?.json(); } catch { return null; } })))
+    .filter((j) => j && typeof j === "object" && JOB_RE.test(j.jobId ?? ""));
+  const t = (j) => { const v = Date.parse(j.createdAt); return Number.isNaN(v) ? Infinity : v; };
+  return jobs.sort((a, b) => t(a) - t(b));
+}
+
+// The queue operations. Each returns { status, body }. Run serially inside the "queue" instance.
+async function queueOp(env, op, body) {
+  const reclaimMs = Number(env.AUTHOR_RECLAIM_MS) > 0 ? Number(env.AUTHOR_RECLAIM_MS) : RECLAIM_MS;
+  const now = Date.now();
+  if (op === "claim") {
+    const runner = String(body.runner ?? "").trim().slice(0, 80);
+    for (const job of await listJobs(env)) {
+      if (job.mode !== "runner") continue;
+      const stale = job.status === "running" && now - (Date.parse(job.claimedAt) || 0) > reclaimMs;
+      if (job.status !== "queued" && !stale) continue;
+      if (stale && (job.attempt ?? 0) >= MAX_RUNNER_ATTEMPTS) { // stop handing out a job that keeps dying
+        Object.assign(job, { status: "error", error: `runner ${job.runner} went silent; gave up after ${job.attempt} attempts`, updatedAt: stamp() });
+        await putJob(env, job);
+        continue;
+      }
+      if (stale) appendLog(job, `reclaimed from ${job.runner} after ${Math.round((now - Date.parse(job.claimedAt)) / 1000)} s without completing`);
+      Object.assign(job, { status: "running", runner, claimedAt: stamp(), updatedAt: stamp(), attempt: (job.attempt ?? 0) + 1 });
+      await putJob(env, job);
+      return { status: 200, body: job };
+    }
+    return { status: 204 };
+  }
+  if (op === "queue") {
+    const counts = { queued: 0, running: 0, done: 0, error: 0 };
+    const queued = [], running = [];
+    for (const j of await listJobs(env)) {
+      counts[j.status] = (counts[j.status] ?? 0) + 1;
+      if (j.status === "queued") queued.push({ jobId: j.jobId, createdAt: j.createdAt });
+      if (j.status === "running") running.push({ jobId: j.jobId, runner: j.runner, claimedAt: j.claimedAt, attempt: j.attempt });
+    }
+    return { status: 200, body: { counts, queued, running } };
+  }
+  // progress / complete on one job
+  const job = await readJob(env, body.jobId);
+  if (!job) return { status: 404, body: { error: "no such job" } };
+  const runner = typeof body.runner === "string" && body.runner.trim() ? body.runner.trim() : null;
+  if (job.status !== "running") return { status: 409, body: { error: `job is ${job.status}, not running` } };
+  if (runner && job.runner && runner !== job.runner) return { status: 409, body: { error: `job belongs to runner ${job.runner}` } };
+  if (op === "progress") {
+    if (typeof body.note !== "string" || !body.note.trim()) return { status: 400, body: { error: "note is required" } };
+    appendLog(job, body.note.trim().slice(0, 500));
+    job.updatedAt = stamp();
+    await putJob(env, job);
+    return { status: 200, body: { jobId: job.jobId, log: job.log } };
+  }
+  if (op === "complete") {
+    if (typeof body.error === "string" && body.error.trim()) {
+      Object.assign(job, { status: "error", error: body.error.trim().slice(0, 4000), updatedAt: stamp() });
+      await putJob(env, job);
+      return { status: 200, body: job };
+    }
+    const id = body.id;
+    if (typeof id !== "string" || !ID_RE.test(id)) return { status: 400, body: { error: "body must be { id, meta, html? } or { error }" } };
+    let meta;
+    if (body.html !== undefined) { // inline bundle: store it here (same checks as PUT /games/:id)
+      const errors = checkMeta(body.meta, id);
+      if (typeof body.html !== "string" || !body.html.trim()) errors.push("html missing");
+      if (errors.length) return { status: 400, body: { error: errors.join("; ") } };
+      meta = { ...body.meta, createdAt: body.meta.createdAt || stamp(), prompt: body.meta.prompt ?? job.prompt };
+      await putGame(env, meta, body.html);
+    } else { // already published via PUT /games/:id: the stored meta.json is what the TV will load
+      try { meta = await (await env.GAMES.get(`${id}/meta.json`))?.json(); } catch { meta = null; }
+      if (!meta) return { status: 409, body: { error: `${id}/meta.json is not in the bucket; PUT /games/${id} first or send html inline` } };
+    }
+    Object.assign(job, { status: "done", id, meta, updatedAt: stamp() });
+    await putJob(env, job);
+    return { status: 200, body: job };
+  }
+  return { status: 404, body: { error: "not found" } };
+}
+
+function appendLog(job, note) {
+  job.log = [...(Array.isArray(job.log) ? job.log : []), `${stamp()} ${note}`].slice(-LOG_CAP);
+}
+
+// Token-guarded runner routes: POST /author/claim, GET /author/queue, POST /author/:jobId/{progress,complete}.
+async function handleRunner(req, env, op, jobId) {
+  if (!env.PUBLISH_TOKEN) return cjson({ error: "runner endpoints are disabled: PUBLISH_TOKEN is not set" }, 503);
+  if (req.headers.get("x-publish-token") !== env.PUBLISH_TOKEN) return cjson({ error: "bad publish token" }, 403);
+  const want = op === "queue" ? "GET" : "POST";
+  if (req.method !== want) return cjson({ error: `${want} only` }, 405);
+  let body = {};
+  if (want === "POST") {
+    try { body = await req.json(); } catch { return cjson({ error: "body must be JSON" }, 400); }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return cjson({ error: "body must be a JSON object" }, 400);
+  }
+  if (jobId) body = { ...body, jobId };
+  const res = await env.AUTHOR_JOB.get(env.AUTHOR_JOB.idFromName("queue"))
+    .fetch(`https://job/${op}`, { method: "POST", body: JSON.stringify(body) });
+  if (res.status === 204) return new Response(null, { status: 204 });
+  return cjson(await res.json(), res.status);
+}
+
+// /author, /author/:jobId, and the runner routes
 export async function handleAuthor(req, env, url) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  const parts = url.pathname.split("/").filter(Boolean); // ["author", jobId?]
+  const parts = url.pathname.split("/").filter(Boolean); // ["author", jobId | "claim" | "queue", op?]
+  if (parts.length === 2 && (parts[1] === "claim" || parts[1] === "queue")) return handleRunner(req, env, parts[1]);
+  if (parts.length === 3 && JOB_RE.test(parts[1]) && (parts[2] === "progress" || parts[2] === "complete")) return handleRunner(req, env, parts[2], parts[1]);
   if (parts.length === 2) {
     if (req.method !== "GET" && req.method !== "HEAD") return cjson({ error: "GET /author/:jobId" }, 405);
     const obj = JOB_RE.test(parts[1]) ? await env.GAMES.get(jobKey(parts[1])) : null;
@@ -278,14 +419,24 @@ export async function handleAuthor(req, env, url) {
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim().slice(0, MAX_PROMPT_CHARS) : "";
   if (!prompt) return cjson({ error: "prompt is required" }, 400);
   const context = body.context && typeof body.context === "object" ? body.context : undefined;
+  const wait = url.searchParams.has("wait") && url.searchParams.get("wait") !== "0";
+
+  if (isRunner(env)) { // queue only: a runner claims it via POST /author/claim
+    if (wait) return cjson({ error: "?wait=1 is only available when AUTHOR_MODE is direct; in runner mode POST /author and poll GET /author/:jobId" }, 400);
+    const now = stamp();
+    const job = { jobId: newJobId(), mode: "runner", status: "queued", prompt, ...(context ? { context } : {}), createdAt: now, updatedAt: now, attempt: 0, log: [] };
+    await putJob(env, job);
+    return cjson({ jobId: job.jobId, status: "queued" }, 202);
+  }
+
   if (!env.AUTHOR_FAKE && !env.FIREWORKS_API_KEY) return cjson({ error: "FIREWORKS_API_KEY is not set (wrangler secret put FIREWORKS_API_KEY, or .dev.vars locally)" }, 500);
 
-  if (url.searchParams.has("wait") && url.searchParams.get("wait") !== "0") { // synchronous
+  if (wait) { // synchronous
     try { return cjson(await author(env, prompt, context)); } catch (e) { return cjson({ error: String(e?.message ?? e) }, 502); }
   }
 
   const now = new Date().toISOString();
-  const job = { jobId: newJobId(), status: "queued", prompt, createdAt: now, updatedAt: now, attempt: 0 };
+  const job = { jobId: newJobId(), mode: "direct", status: "queued", prompt, createdAt: now, updatedAt: now, attempt: 0 };
   await putJob(env, job);
   const res = await env.AUTHOR_JOB.get(env.AUTHOR_JOB.idFromName(job.jobId)).fetch("https://job/start", { method: "POST", body: JSON.stringify({ job, context }) });
   if (res.status !== 202) {

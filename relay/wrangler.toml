@@ -40,3 +40,7 @@ enabled = true
 [vars]
 AUTHOR_MODEL = "accounts/fireworks/models/gpt-oss-120b"
 AUTHOR_MAX_TOKENS = "16000"
+# "direct": POST /author calls the model from the AuthorJob alarm. "runner": POST /author only queues
+# the job; a Mac runner claims it (POST /author/claim) and publishes the bundle. Runner routes need
+# the PUBLISH_TOKEN secret (pnpm exec wrangler secret put PUBLISH_TOKEN).
+AUTHOR_MODE = "direct"

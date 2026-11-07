@@ -6,3 +6,6 @@ AUTHOR_FAKE=1
 # AUTHOR_MODEL=accounts/fireworks/models/qwen3-coder-480b-a35b-instruct
 # AUTHOR_MAX_TOKENS=16000
 # AUTHOR_TEMPERATURE=0.4
+# Runner mode: POST /author only queues; a runner claims jobs with x-publish-token (see README "Runner mode").
+# AUTHOR_MODE=runner
+# PUBLISH_TOKEN=some-long-random-string

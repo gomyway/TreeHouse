@@ -178,3 +178,55 @@ the default (verify the ids in that list): Kimi K2 instruct
 (`accounts/fireworks/models/deepseek-v3p1`). Upstream HTTP errors come back as 502 (or a job
 `error`) carrying Fireworks' error body. Fireworks answers 404 "Model not found, inaccessible,
 and/or not deployed" for a bad key as well as for a bad model id, so check the key first.
+
+## Runner mode
+
+`AUTHOR_MODE` (`[vars]` in wrangler.toml, default `"direct"`) picks who writes the game. In
+`direct` mode the AuthorJob alarm calls Fireworks, as above. In `runner` mode the Worker is only a
+queue: `POST /author` stores the job as `queued` and returns `202 { jobId, status: "queued" }`
+without starting an alarm or a model call, and a runner on a Mac (the `pi` coding agent in a Docker
+sandbox) claims it, reports progress, and completes it. `AUTHOR_FAKE` only affects direct mode's
+model call; in runner mode jobs still wait for a runner. `POST /author?wait=1` returns 400 in
+runner mode. The TV side is unchanged: poll the public `GET /author/:jobId`, and show its `log`
+lines on the "writing your game…" screen.
+
+Runner routes need header `x-publish-token: $PUBLISH_TOKEN` (403 if wrong, 503 if `PUBLISH_TOKEN`
+is unset). They all run inside one `AuthorJob` instance named `queue`, one call at a time, so two
+claims can never take the same job.
+
+| Route | Body | Answer |
+|---|---|---|
+| `POST /author/claim` | `{ runner }` | 200 with the oldest `queued` job (by `createdAt`), now `running`, `runner` and `claimedAt` set, `attempt` + 1; 204 when nothing is queued. A job still `running` 8 minutes after its claim is reclaimed (a log line says so); one reclaimed at attempt 3 becomes `error` instead. |
+| `POST /author/:jobId/progress` | `{ note, runner? }` | Appends `"<iso time> <note>"` to `log` (last 50 kept), bumps `updatedAt`. |
+| `POST /author/:jobId/complete` | `{ id, meta, runner? }` | Bundle already published with `PUT /games/:id`: 409 unless `<id>/meta.json` is in R2; job → `done` with `id` and the stored meta. |
+| | `{ id, meta, html, runner? }` | Stores the bundle itself (same checks as `PUT /games/:id`; `meta.id` must equal `id`), job → `done`. |
+| | `{ error, runner? }` | Job → `error`. |
+| `GET /author/queue` | | `{ counts: { queued, running, done, error }, queued: [{ jobId, createdAt }], running: [{ jobId, runner, claimedAt, attempt }] }` |
+
+`progress` and `complete` answer 409 when the job is not `running`, or when `runner` is given and
+the job was claimed by (or reclaimed for) another runner, so a runner that went silent cannot
+overwrite its successor. 404 for an unknown job.
+
+A runner-mode job in `jobs/<jobId>.json`:
+
+```json
+{
+  "jobId": "…12 chars…", "mode": "runner", "status": "queued | running | done | error",
+  "prompt": "…", "context": { "…": "from POST /author" },
+  "createdAt": "…", "updatedAt": "…", "attempt": 1,
+  "runner": "nelsons-mac", "claimedAt": "…",
+  "log": ["2026-11-07T10:00:00.000Z sandbox up"],
+  "id": "…when done…", "meta": { "…": "when done" }, "error": "…when error…"
+}
+```
+
+Direct-mode jobs carry `"mode": "direct"` and no `runner`/`claimedAt`/`log`.
+
+| Setting | Where | Notes |
+|---|---|---|
+| `AUTHOR_MODE` | `[vars]` in wrangler.toml, `--var AUTHOR_MODE:runner`, or `.dev.vars` | `direct` (default) or `runner` |
+| `PUBLISH_TOKEN` (secret) | `pnpm exec wrangler secret put PUBLISH_TOKEN`; locally in `.dev.vars` | Guards the runner routes and `PUT /games/:id` |
+| `AUTHOR_RECLAIM_MS` | `--var` | Claim timeout before reclaim; default 480000 (8 min). The test sets 2500. |
+
+`test/author.mjs` runs a second `wrangler dev --var AUTHOR_MODE:runner --var PUBLISH_TOKEN:testtoken`
+for these routes, including a reclaim.

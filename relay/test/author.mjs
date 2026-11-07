@@ -1,8 +1,10 @@
 // Game storage + authoring manager against `wrangler dev --var AUTHOR_FAKE:1` (no API key needed):
 // the sample bundle is served from an empty bucket, POST /author?wait=1 stores a new bundle that the
 // TV can then pull, the listing puts it first, CORS preflight works, and async POST /author returns a
-// job that polling GET /author/:jobId follows to done. Local R2 state goes to a fresh
-// temp dir so runs don't see each other. Targets RELAY_HTTP (http://host:port) when set instead.
+// job that polling GET /author/:jobId follows to done. Then a second `wrangler dev` in runner mode
+// (AUTHOR_MODE:runner, PUBLISH_TOKEN:testtoken) checks the queue: claim, progress, complete, reclaim.
+// Local R2 state goes to a fresh temp dir so runs don't see each other. Targets RELAY_HTTP
+// (http://host:port) for the direct section when set, and RELAY_RUNNER_HTTP for the runner section.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -10,26 +12,33 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 const wranglerBin = path.join(path.dirname(fileURLToPath(import.meta.url)), "../node_modules/.bin/wrangler");
 
-let base = process.env.RELAY_HTTP, child = null;
-if (!base) {
+// Starts `wrangler dev` with these --var flags and local state in a fresh temp dir; returns { base, child }.
+const tmps = [];
+async function start(vars) {
   const port = 19000 + Math.floor(Math.random() * 1000);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "relay-author-"));
+  tmps.push(tmp);
   const logPath = path.join(tmp, "wrangler.log");
   const logFd = fs.openSync(logPath, "w"); // never leave a child pipe undrained: it blocks the child
-  child = spawn(wranglerBin, ["dev", "--port", String(port), "--var", "AUTHOR_FAKE:1", "--persist-to", path.join(tmp, "state")],
+  const proc = spawn(wranglerBin, ["dev", "--port", String(port), ...vars.flatMap((v) => ["--var", v]), "--persist-to", path.join(tmp, "state")],
     { stdio: ["ignore", logFd, logFd] });
-  process.on("exit", (code) => {
-    if (code) console.error(`wrangler log (${logPath}):\n` + fs.readFileSync(logPath, "utf8").split("\n").slice(-30).join("\n"));
-    else fs.rmSync(tmp, { recursive: true, force: true });
-  });
+  lastLog = logPath;
   const started = Date.now();
   for (;;) {
-    if (Date.now() - started > 90_000) { console.error("wrangler dev did not start in 90 s"); child.kill(); process.exit(1); }
+    if (Date.now() - started > 90_000) { console.error("wrangler dev did not start in 90 s"); proc.kill(); process.exit(1); }
     try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break; } catch {}
     await new Promise((r) => setTimeout(r, 500));
   }
-  base = `http://127.0.0.1:${port}`;
+  return { base: `http://127.0.0.1:${port}`, child: proc };
 }
+let lastLog = null;
+process.on("exit", (code) => {
+  if (code && lastLog) console.error(`wrangler log (${lastLog}):\n` + fs.readFileSync(lastLog, "utf8").split("\n").slice(-30).join("\n"));
+  else for (const t of tmps) fs.rmSync(t, { recursive: true, force: true });
+});
+
+let base = process.env.RELAY_HTTP, child = null;
+if (!base) ({ base, child } = await start(["AUTHOR_FAKE:1"]));
 const done = (code) => { child?.kill(); process.exit(code); };
 const fail = (m) => { console.error("FAIL:", m); done(1); };
 let n = 0; const ok = (m) => console.log(`ok ${++n} - ${m}`);
@@ -111,5 +120,117 @@ ok("GET /games/:id/tv.html serves the async-authored bundle");
 if ((await get("/author/zzzzzzzzzzzz")).status !== 404) fail("unknown job should 404");
 if ((await get("/author/not-a-job")).status !== 404) fail("malformed job id should 404");
 ok("unknown jobId → 404");
+
+if (!process.env.RELAY_HTTP) { // this server has no PUBLISH_TOKEN
+  res = await get("/author/claim", { method: "POST", headers: { "x-publish-token": "x", "content-type": "application/json" }, body: "{}" });
+  if (res.status !== 503) fail(`claim without PUBLISH_TOKEN set should 503, got ${res.status}`);
+  ok("runner routes → 503 when PUBLISH_TOKEN is unset");
+}
+
+
+// ---- runner mode ----
+child?.kill(); child = null;
+base = process.env.RELAY_RUNNER_HTTP;
+const RECLAIM_MS = 2500;
+if (!base) ({ base, child } = await start(["AUTHOR_MODE:runner", "PUBLISH_TOKEN:testtoken", "AUTHOR_FAKE:1", `AUTHOR_RECLAIM_MS:${RECLAIM_MS}`]));
+const TOKEN = { "x-publish-token": process.env.RELAY_RUNNER_TOKEN ?? "testtoken", "content-type": "application/json" };
+const post = (p, body, headers = TOKEN) => get(p, { method: "POST", headers, body: JSON.stringify(body) });
+const author = async (prompt) => {
+  const r = await post("/author", { prompt, context: { players: 2 } }, { "content-type": "application/json" });
+  const b = await r.json();
+  if (r.status !== 202 || b.status !== "queued" || !/^[a-z0-9]{12}$/.test(b.jobId)) fail(`runner POST /author ${r.status} ${JSON.stringify(b)}`);
+  return b.jobId;
+};
+const jobState = (id) => get(`/author/${id}`).then((r) => r.json());
+
+const jobA = await author("A runner-written trivia game");
+await new Promise((r) => setTimeout(r, 400)); // AUTHOR_FAKE must not complete it on its own
+let st = await jobState(jobA);
+if (st.status !== "queued" || st.mode !== "runner" || st.attempt !== 0 || !st.createdAt || st.context?.players !== 2) fail(`queued job ${JSON.stringify(st)}`);
+ok("runner mode: POST /author → 202 queued and it stays queued (no alarm, even with AUTHOR_FAKE)");
+
+res = await get("/author?wait=1", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "x" }) });
+if (res.status !== 400 || !/direct/.test((await res.json()).error)) fail(`?wait=1 in runner mode ${res.status}`);
+ok("runner mode: POST /author?wait=1 → 400");
+
+if ((await post("/author/claim", { runner: "mac" }, { "content-type": "application/json" })).status !== 403) fail("claim without token");
+if ((await post("/author/claim", { runner: "mac" }, { ...TOKEN, "x-publish-token": "wrong" })).status !== 403) fail("claim with bad token");
+ok("POST /author/claim without or with a wrong token → 403");
+
+res = await get("/author/queue", { headers: TOKEN });
+let q = await res.json();
+if (res.status !== 200 || q.counts.queued !== 1 || q.queued[0]?.jobId !== jobA) fail(`queue ${res.status} ${JSON.stringify(q)}`);
+if ((await get("/author/queue")).status !== 403) fail("queue without token");
+ok("GET /author/queue → counts and queued ids (403 without token)");
+
+res = await post("/author/claim", { runner: "mac" });
+st = await res.json();
+if (res.status !== 200 || st.jobId !== jobA || st.status !== "running" || st.runner !== "mac" || st.attempt !== 1 || !st.claimedAt || st.prompt !== "A runner-written trivia game")
+  fail(`claim ${res.status} ${JSON.stringify(st)}`);
+ok("POST /author/claim → 200 with the job, now running, attempt 1");
+
+res = await post("/author/claim", { runner: "mac" });
+if (res.status !== 204) fail(`second claim ${res.status}`); ok("second claim → 204 (nothing queued)");
+
+for (const note of ["sandbox up", "pi is writing tv.html"]) {
+  res = await post(`/author/${jobA}/progress`, { note, runner: "mac" });
+  if (res.status !== 200) fail(`progress ${res.status} ${await res.text()}`);
+}
+st = await jobState(jobA);
+if (st.log?.length !== 2 || !st.log[1].endsWith("pi is writing tv.html")) fail(`log ${JSON.stringify(st.log)}`);
+ok("POST /author/:jobId/progress appends to the public log");
+
+const sample = { meta: await get("/games/sample/meta.json").then((r) => r.json()), html: await get("/games/sample/tv.html").then((r) => r.text()) };
+const gid = "runner-" + Math.random().toString(36).slice(2, 8);
+res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid } });
+if (res.status !== 409) fail(`complete without a published bundle should 409, got ${res.status}`);
+ok("complete { id, meta } before the bundle is published → 409");
+res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid, title: "Runner game" }, html: sample.html, runner: "mac" });
+if (res.status !== 200) fail(`complete inline ${res.status} ${await res.text()}`);
+st = await jobState(jobA);
+if (st.status !== "done" || st.id !== gid || st.meta?.id !== gid || st.meta.title !== "Runner game" || st.log?.length !== 2) fail(`done job ${JSON.stringify(st)}`);
+res = await get(`/games/${gid}/tv.html`);
+if (res.status !== 200 || !(await res.text()).includes("postMessage")) fail(`runner tv.html ${res.status}`);
+if ((await get("/games").then((r) => r.json()))[0]?.id !== gid) fail("runner game not listed first");
+ok("complete { id, meta, html } → job done with id/meta/log, GET /games/:id serves it");
+
+if ((await post(`/author/${jobA}/complete`, { error: "late" })).status !== 409) fail("complete on a done job should 409");
+ok("complete on a job that is not running → 409");
+
+// Pre-published path: PUT /games/:id, then complete with { id, meta }.
+const jobB = await author("Published first");
+st = await post("/author/claim", { runner: "mac" }).then((r) => r.json());
+if (st.jobId !== jobB) fail("claim B");
+const gid2 = gid + "b";
+res = await get(`/games/${gid2}`, { method: "PUT", headers: TOKEN, body: JSON.stringify({ meta: { ...sample.meta, id: gid2 }, html: sample.html }) });
+if (res.status !== 200) fail(`PUT /games ${res.status}`);
+res = await post(`/author/${jobB}/complete`, { id: gid2, meta: { ...sample.meta, id: gid2 } });
+st = await jobState(jobB);
+if (res.status !== 200 || st.status !== "done" || st.id !== gid2) fail(`complete after PUT ${res.status} ${JSON.stringify(st)}`);
+ok("PUT /games/:id then complete { id, meta } → done");
+
+const jobC = await author("Will fail");
+await post("/author/claim", { runner: "mac" });
+res = await post(`/author/${jobC}/complete`, { error: "pi gave up" });
+st = await jobState(jobC);
+if (res.status !== 200 || st.status !== "error" || st.error !== "pi gave up") fail(`error complete ${JSON.stringify(st)}`);
+ok("complete { error } → job error");
+
+// Reclaim: this server reclaims after AUTHOR_RECLAIM_MS (2.5 s here; 8 min by default).
+const jobD = await author("Runner dies");
+st = await post("/author/claim", { runner: "mac-1" }).then((r) => r.json());
+if (st.jobId !== jobD) fail("claim D");
+if ((await post("/author/claim", { runner: "mac-2" })).status !== 204) fail("fresh running job must not be reclaimed");
+await new Promise((r) => setTimeout(r, RECLAIM_MS + 500));
+res = await post("/author/claim", { runner: "mac-2" });
+st = await res.json();
+if (res.status !== 200 || st.jobId !== jobD || st.runner !== "mac-2" || st.attempt !== 2 || !/reclaimed from mac-1/.test(st.log?.at(-1) ?? "")) fail(`reclaim ${res.status} ${JSON.stringify(st)}`);
+if ((await post(`/author/${jobD}/complete`, { error: "x", runner: "mac-1" })).status !== 409) fail("old runner completing should 409");
+if ((await post(`/author/${jobD}/progress`, { note: "x", runner: "mac-1" })).status !== 409) fail("old runner progress should 409");
+ok("a job running past the claim timeout is reclaimed (attempt 2); the old runner then gets 409");
+
+q = await get("/author/queue", { headers: TOKEN }).then((r) => r.json());
+if (q.counts.done !== 2 || q.counts.error !== 1 || q.counts.running !== 1 || q.counts.queued !== 0) fail(`final counts ${JSON.stringify(q.counts)}`);
+ok(`GET /author/queue counts ${JSON.stringify(q.counts)}`);
 
 console.log(`\n${n} checks passed`); done(0);
