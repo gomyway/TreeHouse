@@ -211,3 +211,16 @@ body {
 /* Slide format: a pinned backdrop listed first sits under the flow content; in plain HTML an
    absolutely positioned element would paint over it, so position the flow children too. */
 .deck-slide > :not([style*="position:absolute"]) { position: relative; }
+
+/* Ready: a freshly written game waits for "start" */
+.ready { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 520px; gap: 48px; }
+.ready-main { display: flex; flex-direction: column; justify-content: center; gap: 28px; }
+.ready-title { margin: 0; font-size: 104px; line-height: 1.02; letter-spacing: -2px; }
+.ready-desc { margin: 0; font-size: 38px; line-height: 1.35; color: var(--ink-2); max-width: 1100px; }
+.ready-cta { align-self: flex-start; font-size: 40px; font-weight: 800; padding: 18px 32px; border-radius: 999px; background: var(--bg-2); border: 2px solid var(--line); color: var(--ink-2); }
+.ready-cta.go { background: var(--leaf); border-color: var(--leaf); color: #0b150b; animation: blink 1.6s infinite; }
+.ready-side { padding: 36px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+.code.small span { width: 84px; height: 104px; font-size: 72px; }
+.ready-players { list-style: none; margin: 0; padding: 0; align-self: stretch; display: flex; flex-direction: column; gap: 10px; font-size: 30px; }
+.ready-players li { display: flex; align-items: center; gap: 14px; }
+.ready-players .avatar { width: 44px; height: 44px; font-size: 22px; }

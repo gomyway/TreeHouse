@@ -7,7 +7,7 @@ import { createGameHost, type GameHost, type GameState } from "./game/runner";
 import type { Player, RoomEvent, Screen } from "./room/model";
 import { playerName, useRoom } from "./room/useRoom";
 import { CameraCheck, type CameraSet } from "./ui/CameraCheck";
-import { AuthoringView, GameView } from "./ui/GameView";
+import { AuthoringView, GameView, ReadyView } from "./ui/GameView";
 import { Lobby, StatusPill } from "./ui/Lobby";
 import { QuestionView, type Answer, type Question } from "./ui/QuestionView";
 import { Recap } from "./ui/Recap";
@@ -24,6 +24,7 @@ type View =
   | { kind: "question" }
   | { kind: "camera"; set: CameraSet }
   | { kind: "deck"; index: number }
+  | { kind: "ready"; meta: GameMeta }
   | { kind: "recap"; heading: string; moments: Moment[]; scores?: Record<string, number>; credits?: Moment[] }
   | { kind: "game"; meta: GameMeta; html: string }
   | { kind: "authoring"; prompt: string; status: string; elapsedMs: number; error?: string };
@@ -40,6 +41,9 @@ const GUIDES: Record<View["kind"], string> = {
     "A game is running on the TV and phones. The game speaks its own lines; do not repeat them. Use read_game_state to answer " +
     "questions about the score or what is happening. Pass the viewer's instructions for the game (skip, reveal, make it harder, " +
     "add a bot, change the topic) to tell_game verbatim. stop_game returns to the lobby.",
+  ready:
+    "A new game the room asked for has just been written and is waiting on screen with the join code. Tell people to join on " +
+    "their phones and to say start when everyone is in; then call start_game with that game. Do not start it before someone asks.",
   deck:
     "You are presenting the Little Redwood pitch deck on the TV. When you move to a slide, say its speaker notes in your own " +
     "warm words, in two or three sentences. next_slide and previous_slide move one slide; go_to_slide jumps by number or name; " +
@@ -61,6 +65,7 @@ const TOOLS: Record<View["kind"], string[]> = {
   game: ["read_join_info", "read_game_state", "tell_game", "stop_game", "kick_player"],
   camera: ["camera_check", "back_to_lobby", "read_join_info"],
   recap: ["back_to_lobby", "read_join_info"],
+  ready: ["start_game", "read_join_info", "back_to_lobby", "kick_player"],
   deck: ["next_slide", "previous_slide", "go_to_slide", "read_slide", "back_to_lobby"],
   authoring: ["read_join_info", "back_to_lobby"],
 };
@@ -330,10 +335,13 @@ export default function App() {
 
   useLittleTool<{ id?: string; game?: string }>("start_game", async ({ id, game }) => {
     const list = gamesRef.current.length ? gamesRef.current : await refreshGames();
-    const meta = findGame(list, String(id ?? game ?? ""));
-    if (!meta) return { ok: false, detail: `No game matches "${String(id ?? game ?? "")}". Available: ${list.map((g) => g.title).join(", ")}.` };
-    if (!activePlayers.length && meta.phonesRequired !== false)
-      return { ok: false, detail: "Nobody has joined yet. Ask people to scan the code first." };
+    const v = viewRef.current;
+    const q = String(id ?? game ?? "");
+    // "start" on the ready screen means the game that is waiting there.
+    const meta = (v.kind === "ready" && (!q || findGame([v.meta], q)) ? v.meta : undefined) ?? findGame(list, q);
+    if (!meta) return { ok: false, detail: `No game matches "${q}". Available: ${list.map((g) => g.title).join(", ")}.` };
+    const blocked = whyNotStart(meta);
+    if (blocked) return { ok: false, detail: blocked, say: blocked };
     try {
       await startGame(meta);
       return { detail: `Started ${meta.title} with ${activePlayers.length} players.` };
@@ -341,6 +349,19 @@ export default function App() {
       return { ok: false, detail: String((e as Error).message) };
     }
   });
+
+  // A game starts only with enough people: meta.minPlayers phones, or anyone at all for a
+  // phone-optional (camera) game. Returns a sentence to say when it can't start yet.
+  function whyNotStart(meta: GameMeta): string | null {
+    const joined = roomRef.current.players.filter((p) => p.connected).length;
+    if (meta.phonesRequired === false) return null;
+    const need = Math.max(1, meta.minPlayers ?? 1);
+    if (joined >= need) return null;
+    const code = roomRef.current.code ? ` The code is ${roomRef.current.code.split("").join(" ")}.` : "";
+    return joined === 0
+      ? `Nobody has joined yet. Scan the code on the TV to play ${meta.title}.${code}`
+      : `${meta.title} needs ${need} players and ${joined} ${joined === 1 ? "has" : "have"} joined. Grab another phone!${code}`;
+  }
 
   useLittleTool("stop_game", () => {
     if (viewRef.current.kind !== "game") return { ok: false, detail: "No game is running." };
@@ -378,16 +399,19 @@ export default function App() {
       .then(async (meta) => {
         if (authorAbort.current !== ctl) return;
         authorAbort.current = null;
-        await refreshGames();
-        if (app.can("voice.say")) void app.voice.say(`Your game is ready: ${meta.title}!`);
-        await startGame(meta);
+        const list = await refreshGames();
+        const ready = list.find((g) => g.id === meta.id) ?? meta;
+        // Never auto-start: show it with the join code and wait for "start".
+        setView({ kind: "ready", meta: ready });
+        roomRef.current.transport?.sendScreen("*", { kind: "info", title: `${ready.title} is ready!`, body: "Say start when everyone is in." });
+        if (app.can("voice.say")) void app.voice.say(`${ready.title} is ready! Join on your phones, and say start when everyone is in.`);
       })
       .catch((e: Error) => {
         if (authorAbort.current !== ctl) return;
         authorAbort.current = null;
         setView((v) => (v.kind === "authoring" ? { ...v, error: e.message } : v));
       });
-    return { detail: "Started writing the game. It takes one to three minutes and starts by itself.", say: "Ooh, I like it. Give me a minute or two to build that." };
+    return { detail: "Started writing the game. It takes one to three minutes; then it waits on screen until someone says start.", say: "Ooh, I like it. Give me a minute or two to build that." };
   });
 
   // ---- Presentation ----
@@ -453,19 +477,33 @@ export default function App() {
         else void app.exit();
         return;
       }
+      if (v.kind === "ready" && e.key === "Enter") {
+        const blocked = whyNotStart(v.meta);
+        if (blocked) {
+          if (app.can("voice.say")) void app.voice.say(blocked);
+        } else void startGame(v.meta);
+        return;
+      }
       if (v.kind === "deck") {
         if (e.key === "ArrowRight" || e.key === "Enter") setView({ kind: "deck", index: Math.min(SLIDES.length - 1, v.index + 1) });
         if (e.key === "ArrowLeft") setView({ kind: "deck", index: Math.max(0, v.index - 1) });
         return;
       }
       if (v.kind !== "lobby") return;
-      const n = Math.min(4, gamesRef.current.length);
+      const n = Math.min(6, gamesRef.current.length);
       if (!n) return;
-      if (e.key === "ArrowRight") setFocus((f) => (f + 1) % n);
-      if (e.key === "ArrowLeft") setFocus((f) => (f - 1 + n) % n);
+      // Two columns: left/right within a row, up/down between rows.
+      if (e.key === "ArrowRight") setFocus((f) => Math.min(n - 1, f + 1));
+      if (e.key === "ArrowLeft") setFocus((f) => Math.max(0, f - 1));
+      if (e.key === "ArrowDown") setFocus((f) => (f + 2 < n ? f + 2 : f));
+      if (e.key === "ArrowUp") setFocus((f) => (f - 2 >= 0 ? f - 2 : f));
       if (e.key === "Enter") {
         const g = gamesRef.current[Math.min(focus, n - 1)];
-        if (g && (g.phonesRequired === false || roomRef.current.players.some((p) => p.connected))) void startGame(g);
+        if (!g) return;
+        const blocked = whyNotStart(g);
+        if (blocked) {
+          if (app.can("voice.say")) void app.voice.say(blocked);
+        } else void startGame(g);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -503,6 +541,16 @@ export default function App() {
         <Recap key={view.heading + view.moments.length} heading={view.heading} moments={view.moments} scores={view.scores} credits={view.credits} onFinished={toLobby} />
       ) : view.kind === "camera" ? (
         <CameraCheck key={view.set} set={view.set} />
+      ) : view.kind === "ready" ? (
+        <ReadyView
+          title={view.meta.title}
+          description={view.meta.description}
+          minPlayers={view.meta.minPlayers ?? 1}
+          phonesOptional={view.meta.phonesRequired === false}
+          code={room.code}
+          joinUrl={room.joinUrl}
+          players={activePlayers}
+        />
       ) : view.kind === "authoring" ? (
         <AuthoringView prompt={view.prompt} status={view.status} elapsedMs={view.elapsedMs} error={view.error} />
       ) : (
