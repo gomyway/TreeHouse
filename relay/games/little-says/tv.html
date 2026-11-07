@@ -67,12 +67,34 @@
 // (arm-raise with the person's own side, both-arms-raise). Each phone can claim "That's me: 1/2"
 // to put a name on a figure; phones are optional. Everyone else bets on who survives.
 
-const LIVES = 3, COMMANDS_MAX = 14, SETUP_MS = 25000, REST_MS = 1700;
+const LIVES = 3, COMMANDS_MAX = 16, SETUP_MS = 25000, REST_MS = 1500;
+// need: poses that must all be held in the same camera frame (host people.poses);
+// edge: an action that must happen (jump); not: poses that make it wrong (the other arm).
+// Level 1 is arms only; level 2 adds body poses; level 3 adds squat, jump and combos.
 const MOVES = [
-  { key: "left", text: "left arm up", show: "LEFT ARM" },
-  { key: "right", text: "right arm up", show: "RIGHT ARM" },
-  { key: "both", text: "both arms up", show: "BOTH ARMS" },
+  { key: "left", level: 1, text: "left arm up", show: "LEFT ARM", need: ["arm-left"], not: ["arm-right"] },
+  { key: "right", level: 1, text: "right arm up", show: "RIGHT ARM", need: ["arm-right"], not: ["arm-left"] },
+  { key: "both", level: 1, text: "both arms up", show: "BOTH ARMS", need: ["arm-left", "arm-right"] },
+  { key: "out", level: 2, text: "arms out like an airplane", show: "AIRPLANE", need: ["arms-out"] },
+  { key: "head", level: 2, text: "hands on your head", show: "HANDS ON HEAD", need: ["hands-on-head"] },
+  { key: "leanL", level: 2, text: "lean to your left", show: "LEAN LEFT", need: ["lean-left"] },
+  { key: "leanR", level: 2, text: "lean to your right", show: "LEAN RIGHT", need: ["lean-right"] },
+  { key: "squat", level: 3, text: "squat down", show: "SQUAT", need: ["squat"] },
+  { key: "jump", level: 3, text: "jump", show: "JUMP", edge: "jump" },
+  { key: "c1", level: 3, combo: true, text: "left arm up and lean right", show: "LEFT ARM + LEAN RIGHT", need: ["arm-left", "lean-right"], not: ["arm-right"] },
+  { key: "c2", level: 3, combo: true, text: "right arm up and lean left", show: "RIGHT ARM + LEAN LEFT", need: ["arm-right", "lean-left"], not: ["arm-left"] },
+  { key: "c3", level: 3, combo: true, text: "hands on your head and squat", show: "HANDS ON HEAD + SQUAT", need: ["hands-on-head", "squat"] },
+  { key: "c4", level: 3, combo: true, text: "airplane arms and lean left", show: "AIRPLANE + LEAN LEFT", need: ["arms-out", "lean-left"] },
 ];
+const levelFor = (k) => (k <= 4 ? 1 : k <= 9 ? 2 : 3);
+function pickMove() {
+  const lv = levelFor(n);
+  const pool = MOVES.filter((m) => m.level <= lv && !(phoneMode && m.combo));
+  // Favour the newest level so it actually gets harder.
+  const fresh = pool.filter((m) => m.level === lv);
+  const from = fresh.length && Math.random() < 0.6 ? fresh : pool;
+  return from[Math.floor(Math.random() * from.length)];
+}
 const COLORS = ["#ff7a59", "#4cc3ff"];
 const BONES = [["left_shoulder","right_shoulder"],["left_shoulder","left_elbow"],["left_elbow","left_wrist"],["right_shoulder","right_elbow"],["right_elbow","right_wrist"],
   ["left_shoulder","left_hip"],["right_shoulder","right_hip"],["left_hip","right_hip"],["left_hip","left_knee"],["left_knee","left_ankle"],["right_hip","right_knee"],["right_knee","right_ankle"]];
@@ -116,7 +138,7 @@ function screenFor(id) {
     if (phase === "final") return { kind: "info", title: p ? (p.out ? "You're out!" : "You survived!") : "Game over", body: p ? `${p.pts} points.` : "Look at the TV." };
     if (!p) return { kind: "info", title: "Watching", body: "Look at the TV." };
     if (p.out) return { kind: "info", title: "You're out!", body: "Cheer from the couch." };
-    if (current && current.open && !ppAnswer.has(id)) return { kind: "buttons", prompt: "Listen… only if Little says!", items: MOVES.map((m) => ({ id: "do-" + m.key, label: m.show })), deadline: current.closesAt };
+    if (current && current.open && !ppAnswer.has(id)) return { kind: "buttons", prompt: "Listen… only if Little says!", items: current.options.map((m) => ({ id: "do-" + m.key, label: m.show })), deadline: current.closesAt };
     return { kind: "info", title: `${"♥".repeat(p.lives)}  ${p.pts} pts`, body: "Listen to Little." };
   }
   const wi = whoOf(id);
@@ -184,8 +206,8 @@ function startPlay() {
   say("Only move when Little says. Arms down. Here we go!", true).then(() => later(600, nextCommand));
 }
 
-const windowMs = () => Math.max(1800, 3200 - n * 110);
-const trapChance = () => Math.min(0.45, 0.2 + n * 0.02);
+const windowMs = (move) => Math.max(1500, 3400 - n * 120) + (move.combo ? 900 : move.level === 3 ? 400 : 0);
+const trapChance = () => Math.min(0.5, 0.2 + n * 0.025);
 
 async function nextCommand() {
   if (phase !== "play") return;
@@ -197,17 +219,24 @@ async function nextCommand() {
     if (n >= COMMANDS_MAX || !playing.length || (started >= 2 && playing.length < 2)) return finish();
   }
   n++;
-  const move = MOVES[Math.floor(Math.random() * MOVES.length)];
+  // Back to neutral first, so a pose still held from the last command can't count.
+  if (!phoneMode) await neutral(2000);
+  if (phase !== "play") return;
+  const move = pickMove();
   const trap = n > 2 && Math.random() < trapChance();
-  current = { move, trap, events: [[], []], listenFrom: Date.now() + 300 };
+  const kidding = !trap && n > 6 && Math.random() < 0.12; // "Little says… just kidding!" is a trap too
+  current = { move, trap: trap || kidding, kidding, events: [[], []], frames: [[], []], listenFrom: Date.now() + 300 };
   verdicts = [null, null];
   for (const p of pp.values()) p.verdict = null;
   render();
   const t = token, mine = current;
-  await say(trap ? cap(move.text) + "!" : `Little says, ${move.text}!`, true);
+  if (kidding) await say(`Little says, ${move.text}… just kidding!`, true);
+  else await say(trap ? cap(move.text) + "!" : `Little says, ${move.text}!`, true);
   if (t !== token || current !== mine) return;
-  const w = windowMs() + (phoneMode ? 600 : 0); // a tap needs a little longer than an arm
+  const w = windowMs(move) + (phoneMode ? 600 : 0); // a tap needs a little longer than an arm
   current.open = true; current.closesAt = Date.now() + w;
+  const others = MOVES.filter((m) => m.key !== move.key && !m.combo).sort(() => Math.random() - 0.5).slice(0, 3);
+  current.options = [move, ...others].sort(() => Math.random() - 0.5);
   ppAnswer.clear();
   if (phoneMode) refreshPhones();
   render(w);
@@ -219,20 +248,29 @@ function onMotion(m) {
   if (phase !== "play" || !current || Date.now() < current.listenFrom) return;
   for (const a of m.actions ?? []) { const i = a.slot === 1 ? 1 : 0; current.events[i].push({ id: a.id, side: a.side ?? null, at: Date.now() }); }
 }
-function moved(events, key) {
-  if (key === "both") {
-    if (events.some((e) => e.id === "both-arms-raise")) return true;
-    const ls = events.filter((e) => e.side === "left").map((e) => e.at), rs = events.filter((e) => e.side === "right").map((e) => e.at);
-    return ls.some((a) => rs.some((b) => Math.abs(a - b) < 1200));
-  }
-  // A raise of only the commanded arm; raising both on a one-arm command counts as wrong.
-  const sides = new Set(events.filter((e) => e.id === "arm-raise").map((e) => e.side));
-  return sides.has(key) && !sides.has(key === "left" ? "right" : "left");
+// Wait (up to ms) until everyone in the game is standing neutral.
+function neutral(ms) {
+  const until = Date.now() + ms;
+  return new Promise((res) => {
+    const tick = () => {
+      const busy = inGame().some((i) => (who[i].fig?.poses ?? []).length > 0);
+      if (!busy || Date.now() > until || phase !== "play") return res();
+      setTimeout(tick, 120);
+    };
+    tick();
+  });
 }
+// Did this player do the move during the window? Poses must all show in one frame.
+function did(i, move) {
+  const c = current;
+  if (move.edge) return c.events[i].some((e) => e.id === move.edge);
+  return c.frames[i].some((f) => move.need.every((p) => f.has(p)) && !(move.not ?? []).some((p) => f.has(p)));
+}
+const movedAtAll = (i) => current.events[i].length > 0 || current.frames[i].some((f) => f.size > 0);
 function judge() {
   if (phase !== "play" || !current) return;
   const c = current, lines = [];
-  c.open = false;
+  c.open = false; c.judged = true;
   if (phoneMode) {
     for (const [id, p] of pp) {
       if (p.out) continue;
@@ -255,18 +293,19 @@ function judge() {
     return;
   }
   for (const i of inGame()) {
-    const ev = c.events[i], w = who[i], any = ev.length > 0;
+    const w = who[i], any = movedAtAll(i);
     let ok, why;
     if (c.trap) { ok = !any; why = ok ? "STILL!" : "GOTCHA"; }
-    else if (moved(ev, c.move.key)) { ok = true; why = "✓"; }
-    else { ok = false; why = any ? "WRONG ARM" : "TOO SLOW"; }
+    else if (did(i, c.move)) { ok = true; why = "✓"; }
+    else { ok = false; why = any ? "WRONG MOVE" : "TOO SLOW"; }
     verdicts[i] = { ok, why };
     if (ok) w.pts += 100;
     else {
       w.lives--;
       if (w.lives <= 0) { w.out = true; lines.push(`${w.name} is out!`); }
       else if (c.trap) lines.push(`Gotcha, ${w.name}! I never said Little says.`);
-      else if (why === "WRONG ARM") lines.push(`${w.name}, other arm!`);
+      else if (c.kidding) lines.push(`${w.name}, I said just kidding!`);
+      else if (why === "WRONG MOVE") lines.push(`Not quite, ${w.name}!`);
     }
   }
   render(); refreshPhones();
@@ -352,6 +391,8 @@ function setPlayers(list) {
 function onPeople(people) {
   const was = who.map((w) => w.seen);
   for (const i of [0, 1]) { const p = (people ?? []).find((x) => x.n === i + 1); who[i].fig = p ?? null; who[i].seen = !!p; if (p) who[i].everSeen = true; }
+  // Record each player's poses frame by frame while a command is open.
+  if (phase === "play" && current && !current.judged && Date.now() >= current.listenFrom) for (const i of [0, 1]) if (who[i].fig) current.frames[i].push(new Set(who[i].fig.poses ?? []));
   if (phase === "setup" && who.some((w) => w.seen) && !autoStart) { autoStart = true; later(8000, startPlay); }
   if (was.some((s, i) => s !== who[i].seen)) render(); else paintFigures();
 }
