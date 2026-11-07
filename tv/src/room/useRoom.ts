@@ -39,7 +39,8 @@ export function useRoom(onEvent: (e: RoomEvent, players: Player[]) => void): Roo
       } else if (incoming.type === "join" || incoming.type === "rejoin") {
         const id = incoming.player.id;
         if (next.some((p) => p.id === id)) {
-          next = next.map((p) => (p.id === id ? { ...p, connected: true } : p));
+          const guid = incoming.player.guid;
+          next = next.map((p) => (p.id === id ? { ...p, connected: true, guid: guid ?? p.guid } : p));
         } else {
           // Two phones called "Leo" become "Leo" and "Leo 2" everywhere: lobby, games, scores.
           const player = { ...incoming.player, name: uniqueName(incoming.player.name, id, next) };

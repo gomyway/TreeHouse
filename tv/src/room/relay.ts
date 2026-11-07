@@ -13,12 +13,13 @@ export interface RelayRoom extends RoomTransport {
   readonly joinUrl: string | null;
 }
 
-const toPlayer = (p: { id: string; name: string; connected?: boolean }): Player => ({
+const toPlayer = (p: { id: string; name: string; connected?: boolean; guid?: string }): Player => ({
   id: p.id,
   name: String(p.name || "Player").slice(0, 24),
   connected: p.connected ?? true,
   joinedAt: Date.now(),
   color: colorFor(p.id),
+  guid: typeof p.guid === "string" && p.guid ? p.guid : undefined,
 });
 
 export function connectRelay(
@@ -135,6 +136,9 @@ export function connectRelay(
     },
     sendState(to, payload) {
       send({ type: "state", to, payload });
+    },
+    credentials() {
+      return code && hostToken ? { code, hostToken } : null;
     },
     kick(playerId: PlayerId) {
       send({ type: "kick", to: playerId });

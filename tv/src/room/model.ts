@@ -13,6 +13,8 @@ export interface Player {
   connected: boolean;
   joinedAt: number;
   color: string;
+  /** per-device id from the phone (relay-stamped), stable across rooms and days; for memories */
+  guid?: string;
 }
 
 export type RoomStatus = "connecting" | "open" | "reconnecting" | "offline";
@@ -37,6 +39,8 @@ export interface RoomTransport {
   sendState(to: PlayerId | "*", payload: unknown): void;
   /** Disconnects a player from the room. */
   kick(playerId: PlayerId): void;
+  /** The room code and host token, for authenticated calls like POST /memories (relay rooms only). */
+  credentials?(): { code: string; hostToken: string } | null;
   close(): void;
 }
 
