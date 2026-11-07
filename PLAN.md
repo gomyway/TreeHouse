@@ -57,29 +57,36 @@ TV side, through the Little SDK capabilities declared in the manifest:
 
 ## Hosting
 
-- Today: relay on a laptop, `ngrok http 8787` for the public URL. The relay serves the phone shell, so one URL. The TV app in `little dev` reads `VITE_RELAY_URL`.
-- Later: fly.io (Dockerfile in `relay/`), WebSocket on 443.
-- Codes: 4 letters, no look-alikes, expire with the room. Relay rate-limits joins and caps frame size. No other auth.
+- The relay is a **Cloudflare Worker** (`relay/`): one Durable Object per room, keyed by the 4-letter
+  code, holds the TV socket and the phone sockets (WebSocket hibernation API, so idle rooms cost
+  nothing). The phone shell is served by the same Worker as static assets, so phones use one URL.
+  No laptop, no tunnel. `wrangler dev` runs the identical thing locally for `little dev`.
+- The same Worker is where a just-in-time coding-agent endpoint goes later (`/agent/*`, secrets via
+  `wrangler secret`), so generated phone screens or whole mini-games can be produced server-side
+  without a second deploy target.
+- The TV app reads `VITE_RELAY_URL` (local `ws://127.0.0.1:8787` or the deployed `wss://…workers.dev`).
+- Codes: 4 letters, no look-alikes, expire with the room (60 s grace after the TV drops, 5 min for a
+  phone to rejoin). Frames capped at 256 KB. No other auth; the TV reattaches with a host token.
 
 ## Repo layout and tooling
 
 - npm workspaces: `tv/`, `phone/`, `relay/`, `shared/`. Keep npm and the existing lockfile.
 - One PR moves the root scaffold into `tv/` (`git mv`); nothing inside it changes.
 - Root `npm run dev` runs relay + phone + `little dev` together.
-- Agents open draft PRs; humans merge.
+- Commits go straight to `main` (Leo: "merge without approval"); open a PR only when a conflict is likely.
 
 ## Build order (a suggestion, swap freely)
 
-1. `shared/protocol.ts` and the relay: rooms, forwarding, static shell. ~1 h
-2. Phone shell: join, buttons/text/info screens, reconnect. ~1 h
+1. `shared/protocol.ts`, the relay Worker and the phone shell. (Done 2026-11-07 ~12:10, headless end-to-end test passes locally.)
+2. Deploy the relay (`wrangler deploy`, needs a Cloudflare login) and point the phone QR at it.
 3. TV: connect, big code + QR, player list, readouts and tools. ~1 h
 4. End-to-end loop: TV asks every phone a question and shows the answers. Proves the pipe.
 5. Sensors: gyro first (cheapest, most visible), then camera snap, then mic.
-6. fly.io deploy, `little publish`.
+6. `little publish`.
 
 ## Open questions for Leo's side
 
-- Which of 1 to 3 do you want? I can take relay + phone; the TV piece pairs naturally with whoever owns the manifest and tools.
+- Relay and phone shell are in; the TV piece (connect, big code + QR, player list, readouts, tools) is the next open slot. Want it, or should I keep going?
 - OK to move the root scaffold into `tv/`?
 - Do we want the relay to tunnel HTTP to the TV (TV serves phone pages itself)? I'd defer: declarative screens cover it with less plumbing.
 - What is the experience you were leaning toward? The backbone is idea-agnostic, but the first sensor to wire depends on it.
