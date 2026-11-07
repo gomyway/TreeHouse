@@ -48,16 +48,18 @@ const devVars = (() => {
   return out;
 })();
 // Only secrets fall back to .dev.vars; its AUTHOR_MODEL etc. belong to the Worker's direct mode.
-const env = (k, d) => process.env[k] || (["PUBLISH_TOKEN", "FIREWORKS_API_KEY"].includes(k) ? devVars[k] : undefined) || d;
+const env = (k, d) => process.env[k] || (["PUBLISH_TOKEN", "FIREWORKS_API_KEY", "OPENROUTER_API_KEY", "AUTHOR_PROVIDER"].includes(k) ? devVars[k] : undefined) || d;
 
 const RELAY = env("RELAY_URL", "https://little-redwood-relay.nasloon.workers.dev").replace(/\/$/, "");
 const TOKEN = env("PUBLISH_TOKEN", "");
 const RUNNER = env("RUNNER", hostname());
-const MODEL = env("AUTHOR_MODEL", "accounts/fireworks/models/gpt-oss-120b");
+const PROVIDER = env("AUTHOR_PROVIDER", "fireworks"); // fireworks | openrouter (pi has both built in)
+const MODEL = env("AUTHOR_MODEL", PROVIDER === "openrouter" ? "deepseek/deepseek-v4.1-flash-1017" : "accounts/fireworks/models/deepseek-v4p1-flash-1017");
 const THINKING = env("AUTHOR_THINKING", "low");
 const IMAGE = env("AUTHOR_IMAGE", "little-redwood-author");
 const TIMEOUT_S = Number(env("AUTHOR_TIMEOUT_S", 360));
-const FIREWORKS_API_KEY = env("FIREWORKS_API_KEY", "");
+const KEY_NAME = PROVIDER === "openrouter" ? "OPENROUTER_API_KEY" : "FIREWORKS_API_KEY";
+const API_KEY = env(KEY_NAME, "");
 const POLL_MS = 2000;
 
 const JOBS = join(HERE, "jobs");
@@ -161,15 +163,15 @@ function runAgent(dir, log, onTick) {
     const args = ["run", "--rm", "--name", name,
       "--memory", "2g", "--cpus", "2",
       "-v", `${dir}:/job`, "-w", "/job",
-      "-e", "FIREWORKS_API_KEY",
+      "-e", KEY_NAME,
       IMAGE,
       "pi", "-p", "--mode", "json", "--no-session", "--offline", "--no-context-files",
       "--skill", "/job/skill",
-      "--provider", "fireworks", "--model", MODEL, "--thinking", THINKING,
+      "--provider", PROVIDER, "--model", MODEL, "--thinking", THINKING,
       task];
     log(`docker ${args.slice(0, -1).join(" ")} "<task>"`);
     const t0 = Date.now();
-    const child = spawn("docker", args, { env: { ...process.env, FIREWORKS_API_KEY }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("docker", args, { env: { ...process.env, [KEY_NAME]: API_KEY }, stdio: ["ignore", "pipe", "pipe"] });
     const pi = createPiTracker();
     const trace = join(LOGS, `${dir.split("/").pop()}.pi.jsonl`); // full event stream, for debugging
     child.stdout.on("data", (b) => { appendFileSync(trace, b); for (const l of pi.feed(b.toString())) log(`  ${l}`, true); });
@@ -233,7 +235,7 @@ async function runJob(job) {
       const m = JSON.parse(readFileSync(join(dir, "reference", "sample.meta.json"), "utf8"));
       writeFileSync(join(dir, "meta.json"), JSON.stringify({ ...m, title: `${m.title} (dry run)` }, null, 2));
     } else {
-      if (!FIREWORKS_API_KEY) throw new Error("FIREWORKS_API_KEY is not set (env or relay/.dev.vars)");
+      if (!API_KEY) throw new Error(`${KEY_NAME} is not set (env or relay/.dev.vars)`);
       await progress(`agent started (${MODEL.split("/").pop()}, thinking ${THINKING})`);
       const run = await runAgent(dir, log, (s, t) => {
         const wrote = existsSync(join(dir, "tv.html")) ? `, tv.html ${Math.round(statSync(join(dir, "tv.html")).size / 1024)} KB` : "";

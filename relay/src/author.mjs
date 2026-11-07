@@ -188,6 +188,7 @@ async function generate(env, prompt, context, onAttempt) {
       messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: userText }],
       max_tokens: maxTokens,
       temperature,
+      ...(isOpenRouter(env) ? { provider: { sort: "throughput" } } : {}),
     };
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), DEADLINE_MS);

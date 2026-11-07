@@ -38,7 +38,8 @@ enabled = true
 # serverless: gpt-oss-120b has ~5B active params and streams several hundred tok/s. Fallback if it
 # ignores the two-block format: accounts/fireworks/models/qwen3-coder-480b-a35b-instruct.
 [vars]
-AUTHOR_MODEL = "accounts/fireworks/models/gpt-oss-120b"
+AUTHOR_BASE_URL = "https://openrouter.ai/api/v1"
+AUTHOR_MODEL = "deepseek/deepseek-v4.1-flash-1017"
 AUTHOR_MAX_TOKENS = "16000"
 # "direct": POST /author calls the model from the AuthorJob alarm. "runner": POST /author only queues
 # the job; a Mac runner claims it (POST /author/claim) and publishes the bundle. Runner routes need
