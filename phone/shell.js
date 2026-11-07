@@ -6,6 +6,8 @@ const inBrowser = typeof document !== "undefined";
 const $ = (id) => document.getElementById(id);
 const main = inBrowser ? $("main") : null;
 const qs = new URLSearchParams(inBrowser ? location.search : "");
+const safeGet = (store, k) => { try { return store.getItem(k); } catch { return null; } };
+const safeSet = (store, k, v) => { try { store.setItem(k, v); } catch {} };
 const wsBase = inBrowser ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host : "";
 
 let ws = null, code = null, player = null, retry = 0, closedByTv = false;
@@ -15,7 +17,10 @@ const sensors = { gyro: null, camera: null, mic: null }; // active stop() functi
 function renderJoin(msg) {
   stopPad(); stopClock();
   main.className = "join"; // drop any dead/expired state left by the previous screen
-  const savedName = localStorage.getItem("lr.name") ?? "";
+  // The remembered name is scoped to one room code, so a phone that joined an earlier room (or a
+  // friend's room) starts clean here and never auto-joins as someone else.
+  const prefillCode = (qs.get("c") ?? "").toUpperCase();
+  const savedName = prefillCode ? (safeGet(localStorage, "lr.name." + prefillCode) ?? "") : "";
   main.innerHTML = `
     <h1>Join the TV</h1>
     <p>${msg ?? "Type the code on the screen."}</p>
@@ -26,7 +31,7 @@ function renderJoin(msg) {
     const c = $("code").value.trim().toUpperCase(), n = $("name").value.trim();
     if (c.length !== 4) return toast("Four letters.");
     if (!n) return toast("A name helps the room.");
-    localStorage.setItem("lr.name", n);
+    safeSet(localStorage, "lr.name." + c, n);
     connect(c, n);
   };
   $("go").onclick = go;
@@ -36,7 +41,7 @@ function renderJoin(msg) {
 
 function connect(c, name) {
   code = c; closedByTv = false;
-  const prev = sessionStorage.getItem("lr.player." + code);
+  const prev = safeGet(sessionStorage, "lr.player." + code);
   const url = `${wsBase}/join?code=${code}&name=${encodeURIComponent(name)}${prev ? "&player=" + prev : ""}`;
   ws = new WebSocket(url);
   ws.onopen = () => { retry = 0; };
@@ -57,7 +62,7 @@ const sensor = (kind, data) => send({ type: "sensor", kind, data });
 function handle(f) {
   switch (f.type) {
     case "joined":
-      player = f.player; sessionStorage.setItem("lr.player." + f.code, player.id);
+      player = f.player; safeSet(sessionStorage, "lr.player." + f.code, player.id);
       $("hdr-code").innerHTML = `<b>${f.code}</b>`; $("hdr-name").textContent = player.name;
       renderScreen({ kind: "info", title: "You're in.", body: "Look at the TV." });
       break;
@@ -208,5 +213,7 @@ let toastTimer; function toast(msg) { const t = $("toast"); t.textContent = msg;
 
 if (inBrowser) {
   renderJoin();
-  if (qs.get("c") && localStorage.getItem("lr.name")) connect(qs.get("c").toUpperCase(), localStorage.getItem("lr.name"));
+  // Auto-join only on a true rejoin: this phone already joined this exact room under a name.
+  const c0 = (qs.get("c") ?? "").toUpperCase(), n0 = c0 ? safeGet(localStorage, "lr.name." + c0) : null;
+  if (c0 && n0) connect(c0, n0);
 }
