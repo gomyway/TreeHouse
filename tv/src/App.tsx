@@ -11,6 +11,8 @@ import { AuthoringView, GameView } from "./ui/GameView";
 import { Lobby, StatusPill } from "./ui/Lobby";
 import { QuestionView, type Answer, type Question } from "./ui/QuestionView";
 import { Recap } from "./ui/Recap";
+import { Deck } from "./ui/Deck";
+import { SLIDES, findSlide } from "./deck/deck";
 import { DEMO_CREDITS, DEMO_MOMENTS, DEMO_SCORES } from "./ui/recapDemo";
 
 // The TV side of Little Redwood: a room phones join by code, a catalog of game bundles the
@@ -21,6 +23,7 @@ type View =
   | { kind: "lobby" }
   | { kind: "question" }
   | { kind: "camera"; set: CameraSet }
+  | { kind: "deck"; index: number }
   | { kind: "recap"; heading: string; moments: Moment[]; scores?: Record<string, number>; credits?: Moment[] }
   | { kind: "game"; meta: GameMeta; html: string }
   | { kind: "authoring"; prompt: string; status: string; elapsedMs: number; error?: string };
@@ -37,6 +40,10 @@ const GUIDES: Record<View["kind"], string> = {
     "A game is running on the TV and phones. The game speaks its own lines; do not repeat them. Use read_game_state to answer " +
     "questions about the score or what is happening. Pass the viewer's instructions for the game (skip, reveal, make it harder, " +
     "add a bot, change the topic) to tell_game verbatim. stop_game returns to the lobby.",
+  deck:
+    "You are presenting the Little Redwood pitch deck on the TV. When you move to a slide, say its speaker notes in your own " +
+    "warm words, in two or three sentences. next_slide and previous_slide move one slide; go_to_slide jumps by number or name; " +
+    "read_slide gives the current slide's notes. back_to_lobby ends the presentation.",
   recap:
     "The best moments are replaying on screen next to the leaderboard. React to them in a sentence if asked, " +
     "or say who won. It returns to the lobby by itself; back_to_lobby skips it.",
@@ -49,11 +56,12 @@ const GUIDES: Record<View["kind"], string> = {
 };
 
 const TOOLS: Record<View["kind"], string[]> = {
-  lobby: ["read_join_info", "list_games", "start_game", "create_game", "ask_room", "kick_player", "camera_check", "show_memories"],
+  lobby: ["read_join_info", "list_games", "start_game", "create_game", "ask_room", "kick_player", "camera_check", "show_memories", "present_deck"],
   question: ["read_join_info", "read_answers", "close_question", "back_to_lobby", "kick_player"],
   game: ["read_join_info", "read_game_state", "tell_game", "stop_game", "kick_player"],
   camera: ["camera_check", "back_to_lobby", "read_join_info"],
   recap: ["back_to_lobby", "read_join_info"],
+  deck: ["next_slide", "previous_slide", "go_to_slide", "read_slide", "back_to_lobby"],
   authoring: ["read_join_info", "back_to_lobby"],
 };
 
@@ -79,7 +87,9 @@ export default function App() {
   const app = useLittleApp();
   // Dev preview of the recap: open the app with ?recapdemo.
   const [view, setView] = useState<View>(() =>
-    new URLSearchParams(location.search).has("recapdemo")
+    new URLSearchParams(location.search).has("deck")
+      ? { kind: "deck", index: 0 }
+      : new URLSearchParams(location.search).has("recapdemo")
       ? { kind: "recap", heading: "Best moments · demo", moments: DEMO_MOMENTS, scores: DEMO_SCORES, credits: DEMO_CREDITS }
       : { kind: "lobby" },
   );
@@ -380,6 +390,35 @@ export default function App() {
     return { detail: "Started writing the game. It takes one to three minutes and starts by itself.", say: "Ooh, I like it. Give me a minute or two to build that." };
   });
 
+  // ---- Presentation ----
+  const showSlide = (i: number) => {
+    const k = Math.max(0, Math.min(SLIDES.length - 1, i));
+    setView({ kind: "deck", index: k });
+    const sl = SLIDES[k];
+    return { detail: JSON.stringify({ slide: sl.n, of: SLIDES.length, title: sl.title, notes: sl.notes }), say: sl.notes };
+  };
+  useLittleTool<{ slide?: unknown }>("present_deck", ({ slide }) => showSlide(findSlide(slide as string | number | undefined) ?? 0));
+  useLittleTool("next_slide", () => {
+    const v = viewRef.current;
+    if (v.kind !== "deck") return showSlide(0);
+    if (v.index + 1 >= SLIDES.length) return { detail: "That was the last slide.", say: "That's the end of our deck. Thanks for watching!" };
+    return showSlide(v.index + 1);
+  });
+  useLittleTool("previous_slide", () => {
+    const v = viewRef.current;
+    return showSlide(v.kind === "deck" ? v.index - 1 : 0);
+  });
+  useLittleTool<{ slide?: unknown }>("go_to_slide", ({ slide }) => {
+    const i = findSlide(slide as string | number | undefined);
+    if (i === null) return { ok: false, detail: `No slide matches "${String(slide)}". There are ${SLIDES.length}: ${SLIDES.map((x) => `${x.n} ${x.title}`).join("; ")}` };
+    return showSlide(i);
+  });
+  useLittleTool("read_slide", () => {
+    const v = viewRef.current;
+    const sl = SLIDES[v.kind === "deck" ? v.index : 0];
+    return { detail: JSON.stringify({ slide: sl.n, of: SLIDES.length, title: sl.title, notes: sl.notes }) };
+  });
+
   // ---- Memories ----
   useLittleTool("show_memories", () => {
     const book = allMemories();
@@ -414,6 +453,11 @@ export default function App() {
         else void app.exit();
         return;
       }
+      if (v.kind === "deck") {
+        if (e.key === "ArrowRight" || e.key === "Enter") setView({ kind: "deck", index: Math.min(SLIDES.length - 1, v.index + 1) });
+        if (e.key === "ArrowLeft") setView({ kind: "deck", index: Math.max(0, v.index - 1) });
+        return;
+      }
       if (v.kind !== "lobby") return;
       const n = Math.min(4, gamesRef.current.length);
       if (!n) return;
@@ -427,6 +471,14 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [app, focus, startGame, toLobby]);
+
+  if (view.kind === "deck") {
+    return (
+      <div className="stage stage-game">
+        <Deck index={view.index} />
+      </div>
+    );
+  }
 
   if (view.kind === "game") {
     return (

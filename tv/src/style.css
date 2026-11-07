@@ -197,3 +197,17 @@ body {
 .credits-line { display: flex; flex-direction: column; gap: 6px; }
 .credits-line b { font-size: 64px; }
 .credits-line span { font-size: 34px; color: var(--ink-2); font-style: italic; }
+
+/* Presentation: slides are 1920x1080 sections with inline styles (tv/src/deck/slides) */
+.deck { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+.deck-canvas { position: absolute; inset: 0; animation: deckIn 450ms ease both; }
+.deck-canvas > section { position: absolute; inset: 0; width: 1920px; height: 1080px; box-sizing: border-box; }
+.deck-slide h1, .deck-slide h2, .deck-slide h3, .deck-slide p, .deck-slide ul, .deck-slide ol, .deck-slide table { margin: 0; }
+.deck-slide table { border-collapse: collapse; }
+.deck-slide th, .deck-slide td { text-align: left; padding: 0.35em 0.6em; border-bottom: 1px solid rgba(255, 255, 255, 0.15); }
+.deck-counter { position: absolute; right: calc(40px + var(--little-safe-right, 0px)); bottom: calc(28px + var(--little-safe-bottom, 0px));
+  font-size: 22px; color: rgba(255, 255, 255, 0.55); background: rgba(0, 0, 0, 0.35); padding: 6px 16px; border-radius: 999px; }
+@keyframes deckIn { from { opacity: 0; transform: translateX(24px); } }
+/* Slide format: a pinned backdrop listed first sits under the flow content; in plain HTML an
+   absolutely positioned element would paint over it, so position the flow children too. */
+.deck-slide > :not([style*="position:absolute"]) { position: relative; }
