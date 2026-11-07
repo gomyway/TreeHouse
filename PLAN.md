@@ -176,6 +176,36 @@ game where any joined player (the late joiner too) never gets a buttons/text/pad
 or fewer than 2 are sent (warn only when `phonesRequired` is false), warns when phone buttons
 offer named characters who are not players, and prints a `participation` line per pass.
 
+## Memories (sketch, Nelson 15:20): the recap is the harvest
+
+Goal: games and the host remember people across rooms and days, and authored games are seeded with
+that history. One source of truth: the `moment` messages the host already harvests for the recap and
+the memory book. No second schema.
+
+- **Identity.** The phone shell keeps a per-device `guid` (generated once, in localStorage, never
+  tied to the typed name) and sends it on every join; the relay stamps it onto `Player` (`guid`), so
+  the TV sees `{ id, name, guid }`. Hand-built and authored games put player ids in
+  `moment.players` as today; the host resolves ids to guids when it saves.
+- **Harvest = Leo's memory book.** The host already saves moments and awards per household. Add two
+  fields when saving: `guids` (the players involved) and `crew` (the sorted guids of everyone in the
+  room). After `done`, the host also posts the game's saved moments to the Worker:
+  `POST /memories { tvId, gameId, title, at, crew, moments: [...] }` authenticated with the room's
+  `hostToken` (the relay already issued it). The Worker files them per guid and per crew in R2.
+- **Read back.** `GET /memories?guids=a,b,c` → per player: names used, games played, awards, the
+  last few moments; plus crew-level moments for any subset of those guids that played together.
+- **Authoring.** The TV's `create_game` sends `context.players: [{ id, name, guid }]`; the runner
+  fetches their memories and writes a "Room memory" block into TASK.md (who wins, who got fooled,
+  standing jokes), so the game opens with callbacks and names real history in its own moments.
+- **Live commentary (SDK only).** The host renders a "Room memory" readout for the present players
+  so the Little agent narrates with it, and answers a `recall` bridge message
+  (game → host `{ type: "recall", players?: string[] }`, host → game `{ type: "recalled", memories }`)
+  for reveal lines mid-game. `show_memories` keeps replaying the all-time best on this TV.
+- **Consent.** "Forget me" on the phone's join screen deletes that guid's records on the Worker and
+  asks the host to drop it from the memory book; memories only surface when the person is in the room.
+
+Ownership: guid + relay stamping + `/memories` store + runner injection on Nelson's side; saving
+with guids, the post after `done`, the readout and `recall` on Leo's side.
+
 ## Start gate (Nelson, 14:59)
 
 A built game never starts by itself. When an authoring job reaches `done`, the host shows
