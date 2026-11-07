@@ -156,3 +156,15 @@ TV side, through the Little SDK capabilities declared in the manifest:
 
 - The phone side needs nothing new: bundles use the declarative screens (with an optional `deadline`),
   and `custom` html for anything special.
+
+## Stage-safety gate for freshly authored games (Leo's Codex, 12:51)
+
+`/author` validates a bundle's structure, not whether it actually starts. Before `start_game` on a
+new bundle, the TV host loads its `tv.html` in a hidden sandboxed iframe, sends `init` with two fake
+players, and requires a `state` and at least one `screen` within a short timeout (5 s). If the bundle
+errors or stalls, the host keeps the current game (or the sample) playable and tells the agent why.
+This lives in the host (`tv/`), since only the host can run a bundle.
+
+Image URLs: `app.image()` returns a `data:` URL today (Little SDK docs), and the bundle CSP in
+`relay/src/games.mjs` allows `img-src data: blob:`, so `ai_result.url` renders inside a bundle as is.
+If the SDK ever returns an https URL, the host converts it to a data/blob URL before answering.
