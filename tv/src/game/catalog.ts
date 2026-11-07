@@ -13,6 +13,8 @@ export interface GameMeta {
   minPlayers?: number;
   maxPlayers?: number;
   createdAt?: string;
+  /** false: the game can start with nobody joined by phone (e.g. camera games) */
+  phonesRequired?: boolean;
   prompt?: string;
   /** where the bundle lives; always the game server */
   source: "relay";

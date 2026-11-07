@@ -22,6 +22,8 @@
   .says { font-size: 56px; font-weight: 800; color: var(--gold); min-height: 68px; letter-spacing: -1px; }
   .says.trap { visibility: hidden; }
   .do { font-size: 150px; font-weight: 900; letter-spacing: -4px; line-height: 1; }
+  .do.listen { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(1.12); opacity: .7; } }
   .window { height: 14px; margin: 26px auto 0; width: 900px; border-radius: 7px; background: var(--line); overflow: hidden; }
   .window i { display: block; height: 100%; width: 0; background: var(--gold); }
   .window.run i { animation: fill var(--w) linear forwards; }
@@ -76,7 +78,7 @@ let players = new Map(), joinOrder = [];
 let phase = "lanes", token = 0;
 const lanes = [{ id: null, name: "Left", lives: LIVES, pts: 0, out: false }, { id: null, name: "Right", lives: LIVES, pts: 0, out: false }];
 let slotState = ["vacant", "vacant"], motionState = "starting";
-let mirror = false, calSides = [];
+let mirror = false, calSides = [], autoStart = false;
 let n = 0, current = null, verdicts = [null, null];
 const bets = new Map();     // phone id -> lane index
 const betPts = new Map();
@@ -133,8 +135,10 @@ function startLanes() {
   token++; phase = "lanes";
   send({ type: "motion_start", actions: ["arm-raise", "both-arms-raise"], maxPlayers: 2 });
   refreshPhones();
-  say("Little Says! Two players, grab a lane on your phone and stand in front of the TV. Everyone else, you're betting.");
-  postState("Choosing players: two lanes, left and right.");
+  say(active().length
+    ? "Little Says! One or two players, stand in front of the TV, left and right. Phones are optional: tap a lane to show your name, or bet on who survives."
+    : "Little Says! One or two players, stand in front of the TV, one on the left and one on the right.");
+  postState("Players step in front of the TV, left and right lanes. Phones are optional.");
   render();
   later(CLAIM_MS, startCalibrate);
 }
@@ -280,11 +284,16 @@ function render(windowMsArg) {
   const head = `<header><div><div class="kicker">${phase === "play" ? `Command ${n} of ${COMMANDS_MAX}` : phase === "calibrate" ? "Warm up" : "Pick your lane"}</div>
     <div class="title"><b>Little</b> Says</div></div><div class="meter">camera: ${esc(motionState)} · bets: ${bets.size}</div></header>`;
   let mid = "";
-  if (phase === "lanes") mid = `<div class="command"><div class="says">Two players: grab a lane on your phone</div><div class="do" style="font-size:96px">Stand in front of the TV</div></div>`;
+  if (phase === "lanes") mid = `<div class="command"><div class="says">One or two players · left and right</div><div class="do" style="font-size:96px">${slotState.includes("active") ? "Get ready…" : "Stand in front of the TV"}</div></div>`;
   else if (phase === "calibrate") mid = `<div class="command"><div class="says">Warm up</div><div class="do">LEFT ARM UP</div></div>`;
   else if (current) {
+    // Voice only: the command is never shown while it can still be obeyed, or reading it would
+    // give it away. Once judged, show what it was (and whether it was a trap) for the audience.
     const w = windowMsArg ?? 0;
-    mid = `<div class="command"><div class="says ${current.trap ? "trap" : ""}">Little says…</div><div class="do">${current.move.show}</div>
+    const judged = verdicts.some(Boolean);
+    mid = judged
+      ? `<div class="command"><div class="says">${current.trap ? "Trap! Nobody said Little says:" : "Little says:"}</div><div class="do" style="color:${current.trap ? "var(--bad)" : "var(--ink)"}">${current.move.show}</div></div>`
+      : `<div class="command"><div class="says">Listen…</div><div class="do listen">👂</div>
       <div class="window ${windowMsArg ? "run" : ""}" style="--w:${w}ms"><i></i></div></div>`;
   } else mid = `<div class="command"><div class="says">Only move when Little says</div><div class="do">ARMS DOWN</div></div>`;
   app.innerHTML = head + mid + `<div class="lanes">${laneHtml(0)}${laneHtml(1)}</div>`;
@@ -327,6 +336,9 @@ window.addEventListener("message", (e) => {
     case "motion_status": {
       motionState = m.state + (m.reason ? ` (${m.reason})` : "");
       slotState = [0, 1].map((i) => (m.slots ?? []).find((s) => s.slot === i)?.state ?? "vacant");
+      // No phone needed: once the camera sees someone in a lane, give a second player a few
+      // seconds to step in, then warm up.
+      if (phase === "lanes" && slotState.includes("active") && !autoStart) { autoStart = true; later(6000, startCalibrate); }
       if (m.state === "unavailable" && phase !== "final") { say("I can't use the camera here, so Little Says is off for now."); finish(); return; }
       if (phase !== "play") render(); else { for (const i of [0, 1]) document.querySelectorAll(".lane")[i]?.classList.toggle("on", slotState[i] === "active"); }
       break;
