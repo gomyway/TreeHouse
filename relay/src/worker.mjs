@@ -64,10 +64,12 @@ export class Room {
   }
   save() { return this.ctx.storage.put({ code: this.code, hostToken: this.hostToken, players: Object.fromEntries(this.players) }); }
 
-  // Hibernatable sockets come back from getWebSockets() only while open; a send on one that is
-  // closing throws, so every send is guarded rather than filtered on readyState.
-  tvSocket() { return this.ctx.getWebSockets("tv")[0] ?? null; }
-  phoneSockets(to) { return to === "*" ? this.ctx.getWebSockets("phone") : this.ctx.getWebSockets("p:" + to); }
+  // getWebSockets() still returns a socket while it is closing, including the one whose
+  // webSocketClose is running, so "is there a live one" checks keep OPEN sockets only and can
+  // exclude the socket being closed. Sends are still guarded: a socket can close mid-loop.
+  static live(list, except = null) { return list.filter((w) => w !== except && w.readyState === WebSocket.OPEN); }
+  tvSocket(except) { return Room.live(this.ctx.getWebSockets("tv"), except)[0] ?? null; }
+  phoneSockets(to, except) { return Room.live(this.ctx.getWebSockets(to === "*" ? "phone" : "p:" + to), except); }
   playerList() { return [...this.players.values()].map(pub); }
   static send(ws, data) { try { ws.send(data); return true; } catch { return false; } }
   toTv(frame) { const tv = this.tvSocket(); if (tv) Room.send(tv, JSON.stringify(frame)); }
@@ -146,13 +148,13 @@ export class Room {
     const att = ws.deserializeAttachment();
     if (!att || att.role === "dead") return;
     if (att.role === "tv") {
-      if (this.tvSocket()) return; // replaced by a newer TV socket
+      if (this.tvSocket(ws)) return; // replaced by a newer TV socket
       this.toPhones("*", { type: "tv", status: "reconnecting" });
       await this.ctx.storage.setAlarm(Date.now() + TV_GRACE_MS);
       return;
     }
     const p = this.players.get(att.id);
-    if (!p || this.phoneSockets(att.id).length) return; // replaced by a newer phone socket
+    if (!p || this.phoneSockets(att.id, ws).length) return; // replaced by a newer phone socket
     p.connected = false; p.leftAt = Date.now();
     this.toTv({ type: "leave", player: pub(p) });
     await this.save();

@@ -35,8 +35,11 @@ const tv = await open("/host");
 const room = await next(tv, "room");
 if (!/^[A-HJ-NP-Z]{4}$/.test(room.code) || !room.hostToken) fail(`bad room ${JSON.stringify(room)}`); ok(`room ${room.code}`);
 
+// On Workers the Room DO notifies the TV before its 101 reaches the phone, so the TV-side frame can
+// land before the phone's `open` fires: listen on the TV before opening the phone socket.
+const joinP = next(tv, "join");
 const phone = await open(`/join?code=${room.code.toLowerCase()}&name=Ana`);
-const [joined, joinEv] = await Promise.all([next(phone, "joined"), next(tv, "join")]);
+const [joined, joinEv] = await Promise.all([next(phone, "joined"), joinP]);
 if (joined.player.name !== "Ana" || joinEv.player.id !== joined.player.id) fail("join mismatch"); ok("phone joined, tv notified");
 
 send(tv, { type: "screen", to: joined.player.id, screen: { kind: "buttons", items: [{ id: "a", label: "A" }] } });
@@ -50,24 +53,27 @@ if ((await next(phone, "state")).payload.round !== 1) fail("broadcast state"); o
 
 phone.close(); if ((await next(tv, "leave")).player.id !== joined.player.id) fail("leave"); ok("leave on disconnect");
 
+const rejoinP = next(tv, "rejoin");
 const phone2 = await open(`/join?code=${room.code}&player=${joined.player.id}`);
-const [j2, rj] = await Promise.all([next(phone2, "joined"), next(tv, "rejoin")]);
+const [j2, rj] = await Promise.all([next(phone2, "joined"), rejoinP]);
 if (j2.player.id !== joined.player.id || rj.player.name !== "Ana") fail("rejoin"); ok("rejoin keeps id and name");
 
 const bad = await open("/join?code=ZZZZ");
 if ((await next(bad, "error")).message !== "no such room") fail("no-room error"); ok("unknown code rejected with a readable error");
 
-const phone3 = await open(`/join?code=${room.code}&name=Bo`); await next(phone3, "joined"); await next(tv, "join");
+const join3P = next(tv, "join");
+const phone3 = await open(`/join?code=${room.code}&name=Bo`); await next(phone3, "joined"); await join3P;
 send(tv, { type: "kick", to: joined.player.id });
 await next(phone2, "kick"); ok("kick delivered");
 
 tv.close();
 if ((await next(phone3, "tv")).status !== "reconnecting") fail("tv grace"); ok("tv drop → phones told reconnecting, room kept");
 
+const backP = next(phone3, "tv"); // sent to phones while the new TV socket is still being accepted
 const tv2 = await open(`/host?code=${room.code}&token=${room.hostToken}`);
 const room2 = await next(tv2, "room");
 if (room2.code !== room.code || !room2.players.some((p) => p.name === "Bo")) fail(`tv reattach ${JSON.stringify(room2)}`); ok("tv reattaches with host token and sees players");
-if ((await next(phone3, "tv")).status !== "connected") fail("phones told tv is back"); ok("phones told tv is back");
+if ((await backP).status !== "connected") fail("phones told tv is back"); ok("phones told tv is back");
 
 const status = await fetch(base.replace(/^ws/, "http") + `/rooms/${room.code}`).then((r) => r.json());
 if (!status.tv || status.players.length !== 1) fail(`status ${JSON.stringify(status)}`); ok("status endpoint");
