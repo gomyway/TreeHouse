@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whodunnit in the Room</title>
+<style>
+  :root { --bg: #0d0a14; --fg: #f6f1ff; --dim: #a397b8; --acc: #ff4f6d; --gold: #ffd23f; --card: #1f1830; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: radial-gradient(circle at 50% 30%, #2a1838, var(--bg) 70%); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4vh; padding: 5vh 6vw; text-align: center; }
+  .kicker { font-size: 4vh; color: var(--dim); letter-spacing: .1em; text-transform: uppercase; }
+  h1 { font-size: 10vh; line-height: 1.05; font-weight: 800; }
+  .big { font-size: 7vh; font-weight: 800; }
+  .body { font-size: 4.5vh; max-width: 80vw; color: #e5dcf5; }
+  .clue { background: #f3e7c4; color: #2a1d08; font-family: Georgia, serif; font-size: 6vh; padding: 4vh 4vw; border-radius: 1vh; transform: rotate(-1.5deg); box-shadow: 0 2vh 5vh #000a; max-width: 80vw; }
+  .row { font-size: 4.5vh; display: flex; gap: 2vw; flex-wrap: wrap; justify-content: center; }
+  .chip { padding: 1vh 2vw; border-radius: 99px; background: var(--card); }
+  .chip.done { background: #2b6b3f; }
+  .chip.hot { background: var(--acc); }
+  .timer { font-size: 6vh; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .clues { font-size: 4vh; color: var(--gold); }
+  ol { font-size: 5vh; text-align: left; list-style: none; padding: 0; } ol li { padding: .4vh 0; }
+  .em { font-size: 16vh; }
+</style>
+</head>
+<body>
+<div id="app"><div class="kicker">🔎 Whodunnit in the Room</div><h1>Waiting for suspects…</h1></div>
+<script>
+const CRIMES = [
+  { what: "the last slice of birthday cake vanished", em: "🎂" },
+  { what: "someone replaced the host's playlist with 40 minutes of whale sounds", em: "🐋" },
+  { what: "the TV remote was hidden inside the freezer", em: "🧊" },
+  { what: "every sock in the house was turned inside out", em: "🧦" },
+  { what: "the fancy cheese was swapped for a bar of soap", em: "🧀" },
+];
+const QUESTIONS = [
+  { q: "Pick your midnight snack", a: ["Crisps", "Ice cream", "Toast", "Nothing"] },
+  { q: "Where were you at 9pm?", a: ["Kitchen", "Sofa", "Bathroom", "Garden"] },
+  { q: "Your weapon of choice", a: ["Spoon", "Pillow", "Stapler", "Glitter"] },
+];
+const PROFILE_S = 25, HUNCH_S = 40, ACCUSE_S = 60, BEAT_MS = 6000;
+
+let players = new Map(); const scores = new Map();
+let phase = "intro", round = -1, token = 0, deadline = 0, crime = CRIMES[0], story = "";
+let beat = false, culprit = null, answers = new Map(), votes = new Map(), clues = [], hunchLog = [], aiSeq = 0, momentsSent = 0;
+const pending = {};
+const app = document.getElementById("app");
+const send = (m) => window.parent.postMessage(m, "*");
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const nameOf = (id) => players.get(id)?.name ?? "Someone";
+const active = () => [...players.values()].filter((p) => p.connected);
+const add = (id, n) => scores.set(id, (scores.get(id) ?? 0) + n);
+const scoreboard = () => Object.fromEntries([...players.values()].map((p) => [p.name, scores.get(p.id) ?? 0]));
+const and = (a) => a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a.at(-1);
+const later = (ms, fn) => { const t = token; setTimeout(() => { if (t === token) fn(); }, ms); };
+const postState = (summary) => send({ type: "state", summary, phase, scores: scoreboard() });
+const left = () => Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+
+function ai(instruction, context, schema, cb) {
+  const id = "ai" + (++aiSeq);
+  const timer = setTimeout(() => { if (pending[id]) { delete pending[id]; cb(null); } }, 15000);
+  pending[id] = (m) => { clearTimeout(timer); cb(m.ok ? m.data : null); };
+  send({ type: "ai", id, instruction, context, schema });
+}
+
+function suspectButtons(prompt, self) {
+  const items = active().filter((p) => p.id !== self).map((p) => ({ id: "p:" + p.id, label: "🫵 " + p.name }));
+  if (!items.length) items.push({ id: "none", label: "Nobody (yet)" });
+  return { kind: "buttons", prompt, items, deadline };
+}
+function screenFor(id) {
+  const guilty = id === culprit;
+  if (phase === "alibi") {
+    if (answers.has(id)) return { kind: "info", title: "Statement taken", body: "Watch the TV for the clue." };
+    const Q = QUESTIONS[round];
+    return { kind: "buttons", prompt: (guilty ? "🤫 YOU did it. Your answer becomes a clue! " : "🕵️ You're innocent. ") + Q.q, items: Q.a.map((a, i) => ({ id: "a" + i, label: a })), deadline };
+  }
+  if (phase === "clue" && !beat) {
+    if (votes.has(id)) return { kind: "info", title: "Hunch logged", body: "Keep arguing out loud!" };
+    return suspectButtons(guilty ? "🤫 Who will you frame this round?" : "Clue " + (round + 1) + ": who's your prime suspect?", id);
+  }
+  if (phase === "accuse") {
+    if (votes.has(id)) return { kind: "info", title: "Accusation sealed", body: "The truth is coming…" };
+    return suspectButtons(guilty ? "🤫 Final frame-up: who takes the fall?" : "⚖️ FINAL ACCUSATION: who did it?", id);
+  }
+  if (phase === "reveal" || phase === "final") return { kind: "info", title: phase === "final" ? "Case closed" : "The truth…", body: "You have " + (scores.get(id) ?? 0) + " points." };
+  return { kind: "info", title: guilty ? "🤫 You are the CULPRIT" : "🕵️ You are innocent", body: guilty ? "Blend in. Nobody must know." : "Find who did it. Watch the clues." };
+}
+const pushAll = () => { for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) }); };
+
+function start() {
+  token++; phase = "intro";
+  const ids = active().map((p) => p.id); if (!ids.length) ids.push(...players.keys());
+  culprit = ids[Math.floor(Math.random() * ids.length)] ?? null;
+  crime = CRIMES[Math.floor(Math.random() * CRIMES.length)];
+  story = `Tonight, ${crime.what}. One of you did it.`;
+  const names = active().map((p) => p.name);
+  ai("Write a two-sentence dramatic, funny party-mystery opening about this crime. The suspects are exactly these real people in the room; do not invent any other characters. Do not hint who did it.",
+     { crime: crime.what, suspects: names }, { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+     (d) => { if (d && typeof d.text === "string" && d.text.trim() && phase === "intro") { story = d.text.trim().slice(0, 260); render(); } });
+  pushAll();
+  send({ type: "say", text: `A crime has been committed! ${crime.what[0].toUpperCase() + crime.what.slice(1)}. Check your phone: one of you is the culprit.` });
+  postState(`Intro: ${crime.what}. One secret culprit among ${and(names)}.`);
+  render();
+  later(BEAT_MS + 2000, () => startAlibi(0));
+}
+
+function startAlibi(r) {
+  token++; beat = false; round = r; phase = "alibi"; answers = new Map(); deadline = Date.now() + PROFILE_S * 1000;
+  pushAll();
+  send({ type: "say", text: `Interrogation ${r + 1}. ${QUESTIONS[r].q}. Answer honestly, the culprit's answer becomes a clue.` });
+  postState(`Interrogation ${r + 1} of 3: "${QUESTIONS[r].q}". Everyone answering on phones.`);
+  render(); later(PROFILE_S * 1000, endAlibi);
+}
+function endAlibi() {
+  if (phase !== "alibi") return;
+  token++; phase = "clue"; votes = new Map();
+  const Q = QUESTIONS[round], c = answers.get(culprit);
+  const same = c === undefined ? [] : [...answers].filter(([, v]) => v === c).length;
+  const text = c === undefined ? `The culprit refused to answer "${Q.q}". Who went quiet?` : `The culprit answered "${Q.a[c]}" to "${Q.q}". ${same} of you said that.`;
+  clues.push(text); deadline = Date.now() + HUNCH_S * 1000;
+  pushAll();
+  send({ type: "say", text: "New clue! " + text + " Discuss, then log your prime suspect." });
+  postState(`Clue ${round + 1}: ${text} Players discussing and voting on a prime suspect.`);
+  render(); later(HUNCH_S * 1000, endHunch);
+}
+function tally() {
+  const t = new Map(); for (const v of votes.values()) if (v) t.set(v, (t.get(v) ?? 0) + 1);
+  return [...t].sort((a, b) => b[1] - a[1]);
+}
+function endHunch() {
+  if (phase !== "clue" || beat) return;
+  token++; beat = true;
+  const t = tally(); const top = t[0];
+  for (const [id, v] of votes) if (id !== culprit && v === culprit) add(id, 3 - round);
+  for (const [id, v] of votes) if (id !== culprit && v && v !== culprit) add(culprit, 1);
+  hunchLog.push(top ? top[0] : null);
+  if (top && momentsSent < 3) { momentsSent++; send({ type: "moment", title: `${nameOf(top[0])} is under suspicion`, caption: `${top[1]} hunch${top[1] > 1 ? "es" : ""} after clue ${round + 1}`, players: [nameOf(top[0])], kind: "funny" }); }
+  send({ type: "say", text: top ? `The room's eyes are on ${nameOf(top[0])}. ${nameOf(top[0])}, explain yourself!` : "No suspects yet. Suspicious." });
+  render({ top });
+  postState(`After clue ${round + 1}, most suspected: ${top ? nameOf(top[0]) : "nobody"}.`);
+  later(BEAT_MS, () => (round + 1 < QUESTIONS.length ? startAlibi(round + 1) : startAccuse()));
+}
+function startAccuse() {
+  token++; beat = false; phase = "accuse"; votes = new Map(); deadline = Date.now() + ACCUSE_S * 1000;
+  pushAll();
+  send({ type: "say", text: "Time for the final accusation! Argue your case, then point the finger on your phone." });
+  postState("Final accusation: everyone votes who did it. Clues: " + clues.join(" "));
+  render(); later(ACCUSE_S * 1000, reveal);
+}
+function reveal() {
+  if (phase !== "accuse") return;
+  token++; phase = "reveal";
+  const right = [...votes].filter(([id, v]) => id !== culprit && v === culprit).map(([id]) => id);
+  const wrong = [...votes].filter(([id, v]) => id !== culprit && v && v !== culprit).map(([id]) => id);
+  for (const id of right) add(id, 5);
+  const t = tally(); const caught = t.length && t[0][0] === culprit && !(t[1] && t[1][1] === t[0][1]);
+  if (!caught) add(culprit, 5);
+  add(culprit, wrong.length * 2);
+  const cn = nameOf(culprit);
+  const line = caught ? `It was ${cn}! The room caught them. ${right.length ? "Well done " + and(right.map(nameOf)) + "." : ""}` : `It was ${cn}! And they got away with it!`;
+  send({ type: "say", text: line });
+  send({ type: "moment", title: caught ? `${cn} caught red-handed` : `${cn} pulled off the perfect crime`, caption: crime.what, players: [cn], kind: caught ? "win" : "clutch" });
+  pushAll(); postState("Reveal: " + line); render({ line, caught, right });
+  later(BEAT_MS + 2000, finish);
+}
+function finish() {
+  token++; phase = "final";
+  const ranked = [...players.values()].sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0));
+  const champ = ranked[0];
+  const line = champ ? `${champ.name} wins with ${scores.get(champ.id) ?? 0} points!` : "Case closed.";
+  send({ type: "moment", kind: "award", title: "Master Detective", caption: line, players: champ ? [champ.name] : [] });
+  send({ type: "moment", kind: "award", title: "Criminal Mastermind", caption: crime.what, players: [nameOf(culprit)] });
+  const framed = hunchLog.filter((x) => x && x !== culprit);
+  if (framed.length) send({ type: "moment", kind: "award", title: "Most Wrongly Accused", players: [nameOf(framed[0])] });
+  send({ type: "say", text: "Case closed. " + line });
+  pushAll(); postState("Game over. " + line); render({ ranked, line });
+  later(9000, () => send({ type: "done" }));
+}
+
+function chips(map) { return `<div class="row">${active().map((p) => `<span class="chip ${map.has(p.id) ? "done" : ""}">${esc(p.name)}</span>`).join("")}</div>`; }
+function render(x = {}) {
+  const T = `<div class="timer" id="timer">${left()}s</div>`;
+  const cl = clues.length ? `<div class="clues">🗂️ ${clues.length} clue${clues.length > 1 ? "s" : ""} on file</div>` : "";
+  if (phase === "intro") app.innerHTML = `<div class="em">${crime.em}</div><div class="kicker">A crime in this very room</div><div class="big">${esc(story)}</div><div class="body">Check your phone: are you innocent… or the culprit? 🤫</div>`;
+  else if (phase === "alibi") app.innerHTML = `<div class="kicker">Interrogation ${round + 1} of 3</div><h1>${esc(QUESTIONS[round].q)}</h1><div class="body">The culprit's answer becomes the next clue.</div>${chips(answers)}${T}`;
+  else if (phase === "clue" && !("top" in x)) app.innerHTML = `<div class="kicker">Clue ${round + 1}</div><div class="clue">${esc(clues.at(-1))}</div><div class="body">Discuss! Then log your prime suspect.</div>${chips(votes)}${T}`;
+  else if (phase === "clue") app.innerHTML = `<div class="kicker">Prime suspect</div><h1>${x.top ? "👀 " + esc(nameOf(x.top[0])) : "Nobody… yet"}</h1><div class="body">${x.top ? x.top[1] + " hunch(es). Explain yourself!" : ""}</div>${cl}`;
+  else if (phase === "accuse") app.innerHTML = `<div class="kicker">⚖️ Final accusation</div><h1>Who did it?</h1><div class="body">${clues.map((c) => "• " + esc(c)).join("<br>")}</div>${chips(votes)}${T}`;
+  else if (phase === "reveal") app.innerHTML = `<div class="kicker">The culprit was…</div><div class="em">${x.caught ? "🚔" : "🏃"}</div><h1>${esc(nameOf(culprit))}</h1><div class="big">${esc(x.line)}</div>`;
+  else if (phase === "final") app.innerHTML = `<div class="kicker">Case closed</div><h1>🏆 ${esc(x.line)}</h1><ol>${x.ranked.slice(0, 8).map((p) => `<li>${esc(p.name)} — ${scores.get(p.id) ?? 0}</li>`).join("")}</ol>`;
+}
+setInterval(() => { const t = document.getElementById("timer"); if (t) t.textContent = left() + "s"; }, 250);
+
+function everyone(map) { return active().length && active().every((p) => map.has(p.id)); }
+function check() {
+  if (phase === "alibi" && everyone(answers)) endAlibi();
+  else if (phase === "clue" && everyone(votes)) endHunch();
+  else if (phase === "accuse" && everyone(votes)) reveal();
+}
+
+window.addEventListener("message", (e) => {
+  const m = e.data;
+  if (!m || typeof m.type !== "string") return;
+  if (m.type === "init") { players = new Map((m.players ?? []).filter((p) => p && p.id).map((p) => [p.id, p])); start(); }
+  else if (m.type === "players") {
+    const before = new Set(players.keys());
+    players = new Map((m.players ?? []).filter((p) => p && p.id).map((p) => [p.id, p]));
+    for (const p of active()) if (!before.has(p.id)) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+    if (phase !== "reveal" && phase !== "final" && phase !== "intro" && !beat) { render(); check(); }
+  } else if (m.type === "input") {
+    const id = m.player, d = m.data; if (!players.has(id) || !d || typeof d.id !== "string") return;
+    if (phase === "alibi" && !answers.has(id) && /^a[0-3]$/.test(d.id)) answers.set(id, +d.id.slice(1));
+    else if ((phase === "clue" || phase === "accuse") && !beat && !votes.has(id) && (d.id === "none" || d.id.startsWith("p:"))) {
+      const v = d.id === "none" ? null : d.id.slice(2); if (v && !players.has(v)) return; votes.set(id, v);
+    } else return;
+    send({ type: "screen", to: id, screen: screenFor(id) }); render(); check();
+  } else if (m.type === "ai_result" && pending[m.id]) { const f = pending[m.id]; delete pending[m.id]; f(m); }
+  else if (m.type === "voice" && /\b(skip|next|hurry)\b/i.test(m.text ?? "")) {
+    if (phase === "alibi") endAlibi(); else if (phase === "clue") endHunch(); else if (phase === "accuse") reveal();
+  }
+});
+</script>
+</body>
+</html>
