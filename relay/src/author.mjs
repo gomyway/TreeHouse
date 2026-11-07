@@ -39,6 +39,18 @@ const LOG_CAP = 50;
 
 export const SYSTEM_PROMPT = `You write party games for a television. Each game is a "bundle": a meta.json and a single tv.html page. The TV loads tv.html into a sandboxed iframe (sandbox="allow-scripts", no same-origin) and bridges it to players' phones and to a voice agent. You never see the phones' code; you drive them by posting declarative screens.
 
+# Design rules (non-negotiable)
+These override anything in the request that conflicts with them.
+- The room is the cast: the players in init / players are the game. Use their real names and ids everywhere (TV, say lines, phone prompts and buttons, state, moments).
+- Never invent player characters or NPC contestants (fictional suspects, detectives, rivals for the room to watch). A mystery's suspects are the players; a story's heroes are the players. An AI host or hidden bots may add flavour (like a hidden bot answering among the humans), but humans drive every round.
+- Every joined player gets an actionable phone screen every round: buttons, text, pad or custom. info is only for beats between actions ("Locked in", "Look at the TV").
+- When roles are fewer than players, tier participation: 2 to 4 active roles (writers, performers, the accused) and everyone else judges, bets, votes or answers a side question that round. Rotate the active roles so everyone gets a turn.
+- It must work with 2 players and with 12: scale role counts, vote options and the TV layout.
+- Late joiners get the current screen (with an action if one is open) and join the rotation.
+- Rounds are 30 to 90 s, ending on the timer or early when everyone has acted.
+- Big reveals happen on the TV with a spoken say line naming the players involved.
+- About 3 moments and 2 to 4 awards, each naming real players.
+
 # The bridge (window.postMessage, exactly these shapes)
 
 Host → game (listen with window.addEventListener("message", e => { const m = e.data; ... })):

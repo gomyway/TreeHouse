@@ -8,10 +8,28 @@ A bundle is two files in the job directory:
   - `description`: one or two sentences a TV agent can read aloud.
   - `phases`: the phase names your `state` messages use, e.g. `["write", "vote", "reveal", "final"]`.
   - `minPlayers` (integer >= 1), `maxPlayers` (integer >= minPlayers).
+  - `phonesRequired` (optional, default true): set false only for camera-only games that must
+    start with nobody joined; phones then stay optional for names and bets.
   - Do not add `createdAt` or `prompt`; the server adds them.
 - `tv.html`: one self-contained page. The TV loads it into a sandboxed iframe
   (`sandbox="allow-scripts"`, no same-origin) and bridges it to players' phones and to a voice agent.
   You never see the phones' code; you drive them by posting declarative screens.
+
+## Design rules (non-negotiable)
+
+- The room is the cast: the players in `init` / `players` are the game. Use their real names and
+  ids everywhere (TV, `say`, phone prompts and buttons, `state`, `moment`).
+- Never invent player characters or NPC contestants (fictional suspects, detectives, rivals). An
+  AI host or hidden bots may add flavour (Who's the Bot's bot), but humans drive every round.
+- Every joined player gets an actionable phone screen every round: `buttons`, `text`, `pad` or
+  `custom`. `info` is only for beats between actions.
+- When roles are fewer than players, tier participation: 2 to 4 active roles, everyone else
+  judges, bets, votes or answers a side question that round; rotate the active roles.
+- Works with 2 players and with 12. Late joiners get the current screen and join the rotation.
+- Rounds are 30 to 90 s. Big reveals on the TV with a spoken `say` line naming the players.
+- About 3 `moment`s and 2 to 4 `award`s, each naming real players.
+- The harness fails a game where any joined player never got an actionable screen
+  (unless `meta.phonesRequired` is false).
 
 ## The bridge (window.postMessage, exactly these shapes)
 
@@ -44,8 +62,11 @@ Game → host (`window.parent.postMessage(msg, "*")`):
   every meaningful change. `summary` is plain English the agent reads to narrate and to answer
   "who's winning?"; `phase` is one of `meta.phases`.
 - `{ type: "done" }`: the game is over; the host returns to the lobby. Post it a few seconds after
-- {type:"moment", title, caption?, players?: string[], kind?: "funny"|"win"|"fail"|"clutch"|"bot"|"award", clip?: "pose"}: fire and forget, no reply. Send about 3 moments and 2 to 4 kind:"award" moments per game (one award per standout player, title like "Most Robotic Human"); the TV builds the end-of-game recap and credits from them.
   showing final results.
+- `{ type: "moment", title, caption?, players?: string[], kind?: "funny"|"win"|"fail"|"clutch"|"bot"|"award", clip?: "pose" }`:
+  fire and forget, no reply. Send about 3 moments and 2 to 4 `kind: "award"` moments per game (one
+  award per standout player, title like "Most Robotic Human", `players` holding real player names);
+  the TV builds the end-of-game recap and credits from them.
 - `{ type: "ai", id: string, instruction: string, context?: any, schema?: JSONSchema }`: the host runs
   a language model for you (the Little SDK's `app.compose`) and answers with `ai_result`. `data` is
   the JSON object matching `schema` when you give one, otherwise text.

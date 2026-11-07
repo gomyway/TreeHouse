@@ -11,6 +11,10 @@
 //                              or AI calls failing + camera unavailable)
 //            --verbose (print every message)
 //
+// Participation: every joined player (the 4th, late joiner too) must get at least one actionable
+// screen (buttons/text/pad/custom) and the pass must send at least 2; both are warnings only when
+// meta.phonesRequired is false. Phone buttons that offer invented characters instead of players warn.
+//
 // Exit 0 and a final "SMOKE PASS" line when everything holds; exit 1 and "SMOKE FAIL" otherwise.
 
 import { readFileSync, existsSync } from "node:fs";
@@ -109,6 +113,11 @@ function runPass(aiOk) {
     let afterInput = { state: 0, screen: 0 };
     let motionOn = 0, motionLive = false;
     let lateJoined = false, lateGotScreen = false, finished = false;
+    // Participation: actionable screens (buttons/text/pad/custom) each player received, directly or via "*".
+    const actionable = new Map([...PLAYERS, LATE].map((p) => [p.id, 0]));
+    let actionableTotal = 0, namedActionable = 0;
+    const npcNames = new Set(); // button labels that read like character names but are no player's name
+    const NAME_RES = [...PLAYERS, LATE].map((p) => new RegExp(`\\b${p.name}\\b`, "i"));
     const realStart = Date.now();
     const timers = [];
 
@@ -219,6 +228,19 @@ function runPass(aiOk) {
           if (!checkScreen(m.screen, m.to)) break;
           if (m.to === LATE.id || (m.to === "*" && lateJoined)) lateGotScreen = true;
           const targets = m.to === "*" ? [...PLAYERS, ...(lateJoined ? [LATE] : [])].map((p) => p.id) : [m.to];
+          if (INPUT_KINDS.has(m.screen.kind)) {
+            actionableTotal++;
+            for (const pid of targets) if (actionable.has(pid)) actionable.set(pid, actionable.get(pid) + 1);
+            const s = m.screen;
+            const words = [s.prompt, s.label, s.placeholder, ...(Array.isArray(s.items) ? s.items.map((i) => i?.label) : []),
+              typeof s.html === "string" ? s.html.replace(/<script[\s\S]*?<\/script>|<[^>]+>/gi, " ") : ""].filter((x) => typeof x === "string").join(" ");
+            if (NAME_RES.some((re) => re.test(words))) namedActionable++;
+            if (s.kind === "buttons" && Array.isArray(s.items)) {
+              const labels = s.items.map((i) => String(i?.label ?? "").replace(/[^\p{L}\s'-]/gu, " ").replace(/\s+/g, " ").trim());
+              const looksNamed = labels.filter((l) => /^\p{Lu}\p{Ll}+( \p{Lu}\p{Ll}+){1,2}$/u.test(l) && !NAME_RES.some((re) => re.test(l)));
+              if (looksNamed.length >= 2 && !labels.some((l) => NAME_RES.some((re) => re.test(l)))) for (const l of looksNamed) npcNames.add(l);
+            }
+          }
           for (const pid of targets) if (PLAYERS.some((p) => p.id === pid) || pid === LATE.id) answerScreen(pid, m.screen);
           break;
         }
@@ -338,8 +360,22 @@ function runPass(aiOk) {
       if (firstInputAt && !gotDone && (afterInput.state === 0 && afterInput.screen === 0)) pfail("went silent after the last input: no state or screen followed it");
       if (lateJoined && !lateGotScreen) pwarn("a player who joined mid-game got no screen (send late joiners the current screen)");
       if (stats.say === 0) pwarn("never used say: the TV voice should announce rounds and results");
+      // Participation: every joined player (the late joiner too) must get something to do.
+      const phonesOptional = meta?.phonesRequired === false;
+      const joined = [...PLAYERS, ...(lateJoined ? [LATE] : [])];
+      const leftOut = joined.filter((p) => !actionable.get(p.id));
+      if (leftOut.length) {
+        const s = `players left out: ${leftOut.map((p) => p.name).join(", ")} never got an actionable screen (buttons/text/pad/custom); every joined player needs something to do every round`;
+        phonesOptional ? pwarn(s + " (meta.phonesRequired is false, so only a warning)") : pfail(s);
+      }
+      if (actionableTotal < 2) {
+        const s = `only ${actionableTotal} actionable screen(s) sent over the whole pass; players need a fresh action every round`;
+        phonesOptional ? pwarn(s) : pfail(s);
+      }
+      if (npcNames.size) pwarn(`phones vote on named characters who are not players (${[...npcNames].slice(0, 4).join(", ")}): never invent NPC suspects or contestants, the room is the cast`);
       try { window.close(); } catch {}
-      done({ tag, why, pf, pw, stats, gameS: Math.round(gameMs / 1000), realS: ((Date.now() - realStart) / 1000).toFixed(1), cycles, inputPhase, minAnswered, gotDone });
+      const participation = joined.map((p) => `${p.name} ${actionable.get(p.id)}`).join(", ") + `; ${actionableTotal} actionable screens, ${namedActionable} naming a player`;
+      done({ tag, why, pf, pw, stats, participation, gameS: Math.round(gameMs / 1000), realS: ((Date.now() - realStart) / 1000).toFixed(1), cycles, inputPhase, minAnswered, gotDone });
     }
 
     // ---------- the session script ----------
@@ -367,6 +403,7 @@ if (!failures.length) {
 }
 for (const p of passes) {
   log(`pass ${p.tag}: ended by ${p.why} after ${p.gameS} s game time (${p.realS} s real); states ${p.stats.state}, screens ${p.stats.screen}, says ${p.stats.say}, inputs sent ${p.stats.inputs}, ai ${p.stats.ai}, ai_image ${p.stats.ai_image}, bot_answer ${p.stats.bot_answer}, motion_start ${p.stats.motion_start}; input phase "${p.inputPhase}" entered ${p.cycles}x; done ${p.gotDone}`);
+  log(`  participation ${p.tag}: ${p.participation}`);
   for (const f of p.pf) failures.push(`[${p.tag}] ${f}`);
   for (const w of p.pw) warn(`[${p.tag}] ${w}`);
 }

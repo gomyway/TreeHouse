@@ -163,6 +163,19 @@ TV side, through the Little SDK capabilities declared in the manifest:
 - The phone side needs nothing new: bundles use the declarative screens (with an optional `deadline`),
   and `custom` html for anything special.
 
+## The room is the cast (Nelson, after Whodunit Live)
+
+The first game authored from the real TV ("Whodunit Live") ran its own story: four invented
+suspects, everyone voting on fictional characters. These games are about the people in the room.
+The skill, `CONTRACT.md` and the Worker's `/author` prompt now open with "Design rules
+(non-negotiable)": real names and ids, an actionable phone screen for every joined player every
+round, tiered roles (2 to 4 active, everyone else judges, bets or votes; rotate) when the room
+is bigger than the roles, works with 2 and with 12, AI host and bots only as flavour, 30 to 90 s
+rounds, spoken TV reveals, moments and awards naming real players. The smoke harness fails a
+game where any joined player (the late joiner too) never gets a buttons/text/pad/custom screen,
+or fewer than 2 are sent (warn only when `phonesRequired` is false), warns when phone buttons
+offer named characters who are not players, and prints a `participation` line per pass.
+
 ## Start gate (Nelson, 14:59)
 
 A built game never starts by itself. When an authoring job reaches `done`, the host shows
