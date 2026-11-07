@@ -127,7 +127,8 @@ function say(text, wait = false) {
 }
 function postState(summary) {
   const scores = {};
-  for (const w of who) if (w.everSeen) scores[w.name] = w.pts;
+  if (phoneMode) for (const p of pp.values()) scores[p.name] = p.pts;
+  else for (const w of who) if (w.everSeen) scores[w.name] = w.pts;
   send({ type: "state", summary, phase, scores });
 }
 

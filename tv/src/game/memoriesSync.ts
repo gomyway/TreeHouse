@@ -7,15 +7,17 @@ import type { GameResult, Moment } from "./memories";
 // Must run right after done: the room's hostToken dies 60 s after the TV leaves the room.
 // Fire and forget: the TV's own memory book (memories.ts) is already saved either way.
 
-/** Fills playerGuids (parallel to players, by display name), crew and room on each moment. */
-export function tagMoments(moments: Moment[], roster: Player[], room: string | null): Moment[] {
+// Names the games make up for people without a phone ("Player 2", "Someone") must never be
+// credited to a real phone that happens to use the same name.
+const PLACEHOLDER = /^(player \d+|someone|nobody|left|right|the bot|bot \d+)$/i;
+
+/** Fills playerGuids (parallel to players, by display name) on each moment. crew and room go once
+ *  on the post itself; the Worker fills them in per moment. */
+export function tagMoments(moments: Moment[], roster: Player[]): Moment[] {
   const byName = new Map(roster.map((p) => [p.name.toLowerCase(), p.guid ?? ""]));
-  const crew = [...new Set(roster.map((p) => p.guid).filter((g): g is string => !!g))].sort();
   return moments.map((m) => ({
     ...m,
-    playerGuids: m.players?.map((n) => byName.get(n.toLowerCase()) ?? ""),
-    crew: crew.length ? crew : undefined,
-    room: room ?? undefined,
+    playerGuids: m.players?.map((n) => (PLACEHOLDER.test(n.trim()) ? "" : byName.get(n.toLowerCase()) ?? "")),
   }));
 }
 
@@ -30,24 +32,34 @@ export async function postMemories(opts: {
   const { credentials } = opts;
   if (!credentials) return; // fake room or not connected: nothing to file
   const players = opts.roster.filter((p) => p.guid).map((p) => ({ guid: p.guid as string, name: p.name }));
-  try {
-    const res = await fetch(`${RELAY_HTTP}/memories`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        room: credentials.code,
-        hostToken: credentials.hostToken,
-        game: opts.game,
-        at: opts.at,
-        moments: opts.moments,
-        result: opts.result,
-        players,
-      }),
-    });
-    const body = await res.text();
-    console.info("[memories] POST", res.status, body.slice(0, 160));
-  } catch (e) {
-    console.warn("[memories] POST failed", String((e as Error)?.message ?? e));
+  const crew = [...new Set(players.map((p) => p.guid))].sort();
+  const body = JSON.stringify({
+    room: credentials.code,
+    hostToken: credentials.hostToken,
+    game: opts.game,
+    at: opts.at,
+    moments: opts.moments,
+    result: opts.result,
+    players,
+    crew,
+  });
+  // keepalive lets the request finish if the TV closes the app during the recap; browsers cap
+  // keepalive bodies at 64 KB, so big posts (pose clips) go without it. One retry on failure;
+  // re-posting the same room+at replaces the game, so a retry never double counts.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(`${RELAY_HTTP}/memories`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        keepalive: body.length < 60_000,
+      });
+      console.info("[memories] POST", res.status, (await res.text()).slice(0, 160));
+      if (res.ok || (res.status >= 400 && res.status < 500)) return;
+    } catch (e) {
+      console.warn("[memories] POST failed", String((e as Error)?.message ?? e));
+    }
+    if (attempt === 1) await new Promise((r) => setTimeout(r, 3000));
   }
 }
 

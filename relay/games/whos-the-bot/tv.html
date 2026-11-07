@@ -386,7 +386,7 @@ function endVote() {
     later(2500, () => { r.stage = 1; render(); send({ type: "say", text: line }); });
     postState(`Reveal. ${line}`);
     // Moments for the end-of-game recap (saved on the TV).
-    for (const c of botCards) if (!caughtNames.includes(c)) send({ type: "moment", kind: "bot", title: "The bot fooled everyone", caption: `"${c.text}" was written by a bot (${nameOf(c.author)}). Prompt: ${r.prompt}` });
+    for (const c of botCards) if ((r.guessCount.get(c.letter) ?? 0) === 0 && vs.length > 0) send({ type: "moment", kind: "bot", title: "The bot fooled everyone", caption: `"${c.text}" was written by a bot (${nameOf(c.author)}). Prompt: ${r.prompt}` });
     const best = r.cards.filter((c) => !isBot(c.author)).sort((a, b) => (r.funnyCount.get(b.letter) ?? 0) - (r.funnyCount.get(a.letter) ?? 0))[0];
     if (best && (r.funnyCount.get(best.letter) ?? 0) >= 2) send({ type: "moment", kind: "funny", title: `"${best.text}"`, caption: `Funniest answer to: ${r.prompt}`, players: [nameOf(best.author)] });
   } else {

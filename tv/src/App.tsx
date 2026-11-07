@@ -116,6 +116,9 @@ export default function App() {
   gameStateRef.current = gameState;
   const hostRef = useRef<GameHost | null>(null);
   const sessionMoments = useRef<Moment[]>([]);
+  // Everyone who took part in the current game (kept even if they leave before the end), for
+  // crediting moments and the crew in memories.
+  const sessionRoster = useRef<Map<string, Player>>(new Map());
   const authorAbort = useRef<AbortController | null>(null);
 
   const refreshGames = useCallback(async () => {
@@ -154,6 +157,7 @@ export default function App() {
     const v = viewRef.current;
     const host = hostRef.current;
 
+    if (v.kind === "game" && (e.type === "join" || e.type === "rejoin")) sessionRoster.current.set(e.player.id, e.player);
     if (v.kind === "game" && host) {
       if (e.type === "join" || e.type === "rejoin" || e.type === "leave" || e.type === "sync") host.players(players);
       if (e.type === "input") host.input(e.playerId, e.data);
@@ -201,6 +205,7 @@ export default function App() {
     hostRef.current?.dispose();
     hostRef.current = null;
     sessionMoments.current = [];
+    sessionRoster.current = new Map(roomRef.current.players.filter((p) => p.connected).map((p) => [p.id, p]));
     setGameState(null);
     setQuestion(null);
     setView({ kind: "game", meta, html });
@@ -214,6 +219,7 @@ export default function App() {
       if (!frame) return;
       const v = viewRef.current;
       const title = v.kind === "game" ? v.meta.title : "Game";
+      let doneHandled = false;
       const host = createGameHost({
         frame,
         app,
@@ -227,15 +233,21 @@ export default function App() {
         // Game over: save the moments to the TV's memory book, then replay the best ones beside
         // the leaderboard before going back to the lobby.
         onDone: () => {
-          const roster = roomRef.current.players;
-          const moments = tagMoments(sessionMoments.current, roster, roomRef.current.code);
+          if (doneHandled) return; // a game may send done twice
+          doneHandled = true;
+          const roster = [...sessionRoster.current.values()];
+          const moments = tagMoments(sessionMoments.current, roster);
           const scores = gameStateRef.current?.scores;
-          const top = scores ? Object.entries(scores).sort((a, b) => b[1] - a[1])[0] : undefined;
+          const hasScores = !!scores && Object.keys(scores).length > 0;
+          // A winner only when one name clearly tops the board with points.
+          const ranked = hasScores ? Object.entries(scores!).sort((a, b) => b[1] - a[1]) : [];
+          const clear = ranked.length > 0 && ranked[0][1] > 0 && (ranked.length === 1 || ranked[1][1] < ranked[0][1]);
           const at = Date.now();
-          const result = scores ? { at, game: title, winner: top?.[0], scores } : undefined;
+          const result = hasScores ? { at, game: title, winner: clear ? ranked[0][0] : undefined, scores: scores! } : undefined;
           remember(moments, result);
           // File the game on the Worker too, right away (the host token dies 60 s after the TV leaves).
-          void postMemories({ credentials: roomRef.current.transport?.credentials?.() ?? null, game: title, at, moments, result, roster });
+          if (moments.length || result)
+            void postMemories({ credentials: roomRef.current.transport?.credentials?.() ?? null, game: title, at, moments, result, roster });
           sessionMoments.current = [];
           if (!moments.length) return toLobby();
           hostRef.current?.dispose();
