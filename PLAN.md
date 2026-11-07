@@ -118,7 +118,7 @@ TV side, through the Little SDK capabilities declared in the manifest:
 
 ## Game bundle
 
-- `meta.json`: `{ id, title, description, phases: string[], minPlayers, maxPlayers, createdAt, prompt }`
+- `meta.json`: `{ id, title, description, phases: string[], minPlayers, maxPlayers, createdAt, prompt, phonesRequired? }` (`phonesRequired: false` for camera-only games that start with nobody joined; phones stay optional for names and bets)
 - `tv.html`: one self-contained page (inline CSS/JS, no network) the TV loads in a sandboxed
   iframe (`allow-scripts`). It never touches the relay; it talks to the TV host over `postMessage`:
 

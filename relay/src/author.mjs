@@ -103,6 +103,7 @@ Sensors: "gyro" sends orientation/motion readings at hz; "camera" sends a JPEG d
 
 # meta.json
 { "title": string, "description": string (one or two sentences a TV agent can read aloud), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number }
+- meta.phonesRequired (optional, default true): set false only for camera-only games that must start with nobody joined; phones then stay optional for names and bets.
 Do not include id, createdAt or prompt; the server adds them.
 
 # Output format
