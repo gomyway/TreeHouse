@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createFakeRoom } from "./fake";
 import type { Player, PlayerId, RoomEvent, RoomStatus, RoomTransport } from "./model";
+import { RELAY_WS } from "../config";
 import { connectRelay } from "./relay";
 
 // One room per app window. Picks the transport once:
 //   ?fake=N or VITE_FAKE_PLAYERS=N → N pretend players, no relay (UI work without phones)
 //   VITE_RELAY_URL   → the relay Worker (local `wrangler dev` or the deployed one)
-//   neither          → ws://127.0.0.1:8787, the default `wrangler dev` address
+//   neither          → the public Cloudflare relay (src/config.ts)
 
-const DEFAULT_RELAY = "ws://127.0.0.1:8787";
 
 export interface Room {
   status: RoomStatus;
@@ -67,8 +67,7 @@ export function useRoom(onEvent: (e: RoomEvent, players: Player[]) => void): Roo
       return () => room.close();
     }
 
-    const url = (import.meta.env.VITE_RELAY_URL as string | undefined) || DEFAULT_RELAY;
-    const room = connectRelay(url, {
+    const room = connectRelay(RELAY_WS, {
       onEvent: apply,
       onStatus: setStatus,
       onRoom: (c, u) => {
