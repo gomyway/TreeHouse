@@ -90,3 +90,44 @@ TV side, through the Little SDK capabilities declared in the manifest:
 - OK to move the root scaffold into `tv/`?
 - Do we want the relay to tunnel HTTP to the TV (TV serves phone pages itself)? I'd defer: declarative screens cover it with less plumbing.
 - What is the experience you were leaning toward? The backbone is idea-agnostic, but the first sensor to wire depends on it.
+
+## The loop (Nelson's whiteboard, 2026-11-07 12:18)
+
+0. **Authoring.** Someone describes a game to the TV by voice ("a two-phase quiz where…"). The TV's
+   agent calls the `author` tool with the description. The authoring manager (Claude behind a Worker
+   endpoint) writes a **game bundle** and stores it.
+1. **Pull game.** The TV fetches the bundle by id (or the latest) from game storage.
+2. **Join.** Lobby, code, QR, phones (built).
+3. **Play.** The TV runs the bundle; the bundle drives the phones through the existing screen/input
+   protocol. The agent narrates from the bundle's state summary.
+4. Back to 0, or home.
+
+## Three public addresses (one Worker, three route families; split later if needed)
+
+| Address | Role | Owner |
+|---|---|---|
+| `wss://<worker>/host`, `/join`, `/rooms/:code` | Relay (done) | Nelson's side |
+| `POST /author` `{ prompt, context? }` → `{ id, meta }`; `GET /author/:jobId` if it goes async | Authoring manager. Calls the Claude API with the bundle contract below; secret `ANTHROPIC_API_KEY` via `wrangler secret`. `AUTHOR_FAKE=1` returns a canned bundle for tests. | Nelson's side |
+| `GET /games`, `GET /games/:id/meta.json`, `GET /games/:id/tv.html` | Game storage (R2 bucket `GAMES`; only `/author` writes). A hand-written sample bundle is seeded so the TV can pull before authoring works. | Nelson's side |
+| Game runner in `tv/` | Loads `tv.html` into a sandboxed iframe and bridges it to the relay + the Little agent | Leo's side |
+
+## Game bundle
+
+- `meta.json`: `{ id, title, description, phases: string[], minPlayers, maxPlayers, createdAt, prompt }`
+- `tv.html`: one self-contained page (inline CSS/JS, no network) the TV loads in a sandboxed
+  iframe (`allow-scripts`). It never touches the relay; it talks to the TV host over `postMessage`:
+
+  host → game
+  - `{ type: "init", players: Player[], code }`
+  - `{ type: "players", players: Player[] }` on join / leave
+  - `{ type: "input", player, data }` and `{ type: "sensor", player, kind, data }` as they arrive
+  - `{ type: "voice", text }` when the agent relays a viewer instruction to the game (optional)
+
+  game → host
+  - `{ type: "screen", to, screen }`, `{ type: "ask", to, kind, on, hz }`, `{ type: "play", to, text|url }` (forwarded to the relay as-is)
+  - `{ type: "say", text }` (the host asks the agent to speak it)
+  - `{ type: "state", summary: string, phase: string, scores?: Record<name, number> }` (the host renders it as `data-little` readouts so the agent can narrate and answer questions)
+  - `{ type: "done" }` (back to lobby)
+
+- The phone side needs nothing new: bundles use the declarative screens, and `custom` html for
+  anything special.
