@@ -99,3 +99,32 @@ pnpm exec wrangler deploy
 The reference bundle is `games/sample/` ("Pick A or B": three rounds, majority scores). It is compiled
 into the Worker, so `/games/sample/*` works against an empty bucket, and it is embedded in the
 authoring system prompt as the example the model follows.
+
+## Pre-built games
+
+Every directory under `games/` that holds `meta.json` and `tv.html` is a pre-built bundle, stored in
+the same bucket as authored ones. `GET /games` lists the bucket itself (every `<id>/meta.json`, newest
+`createdAt` first, missing `createdAt` last), so pre-built and authored games are listed alike. If the
+bucket has no `sample/meta.json`, the compiled-in sample is appended last. `index.json` is no longer
+read or written.
+
+```sh
+pnpm games:publish                      # every bundle in games/ → the real bucket (wrangler r2 object put --remote)
+pnpm games:publish whos-the-bot         # just one
+pnpm games:publish --local              # wrangler's local simulation (.wrangler/state), for pnpm dev
+pnpm deploy                             # wrangler deploy, then games:publish
+```
+
+`scripts/publish-games.mjs` checks each `meta.json`: `id` must equal the directory name, and `title`,
+`description`, `phases` and `minPlayers` must be present. A missing `createdAt` is set from the file's
+mtime. Other fields are kept. It prints one line per bundle and a final count, and exits 1 if any bundle failed.
+
+`--local` writes to the same `.wrangler/state` that `pnpm dev` uses (pass `--persist-to DIR` if dev was
+started with one). A running `wrangler dev` sees the objects without a restart.
+
+**PUT /games/:id** `{ meta, html }` with header `x-publish-token` publishes over HTTP using the same
+checks (200 `{ id, meta }`, 403 for a wrong token, 400 for a bad bundle). The route exists only when the
+`PUBLISH_TOKEN` var or secret is set; otherwise it returns 404. It is unset in production. The script uses it with
+`PUBLISH_TOKEN=… node scripts/publish-games.mjs --url http://127.0.0.1:8787`.
+`test/games.mjs` (in `pnpm test`) runs its own `wrangler dev` with a test token and covers the listing order,
+the PUT route and the script's `--url` path.

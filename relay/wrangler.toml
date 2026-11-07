@@ -9,7 +9,7 @@ directory = "../phone"
 binding = "ASSETS"
 run_worker_first = ["/host", "/join", "/health", "/rooms/*", "/games", "/games/*", "/author", "/author/*"]
 
-# Game bundles: <id>/meta.json, <id>/tv.html, plus index.json; authoring job state in jobs/<jobId>.json. `wrangler dev` simulates it locally.
+# Game bundles: <id>/meta.json, <id>/tv.html, plus the bucket listing; authoring job state in jobs/<jobId>.json. `wrangler dev` simulates it locally.
 [[r2_buckets]]
 binding = "GAMES"
 bucket_name = "little-redwood-games"
