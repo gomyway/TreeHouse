@@ -178,6 +178,14 @@
           "on": {
             "type": "boolean",
             "description": "true to show it, false to close it. Defaults to true."
+          },
+          "set": {
+            "type": "string",
+            "enum": [
+              "moves",
+              "holds"
+            ],
+            "description": "moves: arm raises, squat, swipes. holds: arms spread, arm held up, leaning. Defaults to moves."
           }
         }
       }

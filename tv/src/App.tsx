@@ -5,7 +5,7 @@ import { findGame, listGames, loadGameHtml, type GameMeta } from "./game/catalog
 import { createGameHost, type GameHost, type GameState } from "./game/runner";
 import type { Player, RoomEvent, Screen } from "./room/model";
 import { playerName, useRoom } from "./room/useRoom";
-import { CameraCheck } from "./ui/CameraCheck";
+import { CameraCheck, type CameraSet } from "./ui/CameraCheck";
 import { AuthoringView, GameView } from "./ui/GameView";
 import { Lobby, StatusPill } from "./ui/Lobby";
 import { QuestionView, type Answer, type Question } from "./ui/QuestionView";
@@ -17,7 +17,7 @@ import { QuestionView, type Answer, type Question } from "./ui/QuestionView";
 type View =
   | { kind: "lobby" }
   | { kind: "question" }
-  | { kind: "camera" }
+  | { kind: "camera"; set: CameraSet }
   | { kind: "game"; meta: GameMeta; html: string }
   | { kind: "authoring"; prompt: string; status: string; elapsedMs: number; error?: string };
 
@@ -344,14 +344,14 @@ export default function App() {
   });
 
   // ---- Camera check ----
-  useLittleTool<{ on?: unknown }>("camera_check", ({ on }) => {
+  useLittleTool<{ on?: unknown; set?: unknown }>("camera_check", ({ on, set }) => {
     const turnOn = on === undefined ? true : on === true || on === "true";
     if (!turnOn) {
       if (viewRef.current.kind === "camera") toLobby();
       return { detail: "Camera check closed." };
     }
     if (viewRef.current.kind === "game") return { ok: false, detail: "Stop the game first." };
-    setView({ kind: "camera" });
+    setView({ kind: "camera", set: set === "holds" ? "holds" : "moves" });
     return { detail: "Camera check is on. It shows each player slot left to right with every move it recognizes." };
   });
 
@@ -398,7 +398,7 @@ export default function App() {
       {view.kind === "question" && question ? (
         <QuestionView question={question} players={activePlayers} />
       ) : view.kind === "camera" ? (
-        <CameraCheck />
+        <CameraCheck key={view.set} set={view.set} />
       ) : view.kind === "authoring" ? (
         <AuthoringView prompt={view.prompt} status={view.status} elapsedMs={view.elapsedMs} error={view.error} />
       ) : (

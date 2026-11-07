@@ -9,9 +9,14 @@ import { useEffect, useRef, useState } from "react";
 // developer can read the run from `little dev` output. Experimental: all built-in motion
 // semantics are marked experimental by the SDK.
 
-const ACTIONS = ["both-arms-raise", "arm-raise", "squat-rep", "swipe-left", "swipe-right", "swipe-up", "swipe-down"] as const;
-const HELD = ["arms-spread", "arm-raised"] as const;
-const CONTROLS = ["torso-lateral-lean"] as const;
+// Two request sets: "moves" (discrete actions only) and "holds" (held states + lean). Status is
+// aggregate across every requested semantic, so a control that needs calibration can keep the
+// whole session "paused: waiting-for-evidence" and swallow actions; test them apart.
+const SETS = {
+  moves: { actions: ["both-arms-raise", "arm-raise", "squat-rep", "swipe-left", "swipe-right"], held: [], controls: [] },
+  holds: { actions: [], held: ["arms-spread", "arm-raised"], controls: ["torso-lateral-lean"] },
+} as const;
+export type CameraSet = keyof typeof SETS;
 const SLOT_COLORS = ["#ff7a59", "#4cc3ff", "#5fd38d", "#ffc145"];
 
 interface SlotView {
@@ -24,7 +29,7 @@ interface SlotView {
 
 const blankSlot = (): SlotView => ({ state: "vacant", counts: {}, held: [] });
 
-export function CameraCheck() {
+export function CameraCheck({ set }: { set: CameraSet }) {
   const app = useLittleApp();
   const [status, setStatus] = useState<{ state: string; reason?: string; rate?: number }>({ state: "starting" });
   const [slots, setSlots] = useState<SlotView[]>([blankSlot(), blankSlot(), blankSlot(), blankSlot()]);
@@ -36,16 +41,19 @@ export function CameraCheck() {
       setStatus({ state: "unavailable", reason: "sense.motion not granted on this host" });
       return;
     }
+    const req = SETS[set];
     const session = createMotionSession(app, {
-      actions: ACTIONS,
-      held: HELD,
-      controls: CONTROLS,
+      actions: req.actions,
+      held: req.held,
+      controls: req.controls,
       participants: { minimum: 1, maximum: 4, assignment: { mode: "spatial" } },
     });
     const log = (...a: unknown[]) => console.info("[motion]", ...a);
     log("requested", JSON.stringify(session.request));
 
     let lastState = "";
+    const heldPhase = new Map<string, string>();
+    const leanSide = new Map<number, string>();
     const offStatus = session.onStatus((s) => {
       const roster = (s.participants ?? []).map((p) => `${p.slot}:${p.state}`).join(" ");
       const key = `${s.state}|${s.reason ?? ""}|${roster}`;
@@ -73,12 +81,24 @@ export function CameraCheck() {
       }
       for (const h of r.held) {
         const slot = (h as { playerSlot?: number }).playerSlot ?? 0;
-        if (next[slot] && h.phase === "active") next[slot].held.push(h.side ? `${h.actionId} (${h.side})` : h.actionId);
+        const label = h.side ? `${h.actionId} (${h.side})` : h.actionId;
+        if (next[slot] && h.phase === "active") next[slot].held.push(label);
+        const key = `${slot}|${label}`;
+        if (h.phase !== heldPhase.get(key)) {
+          heldPhase.set(key, h.phase);
+          if (h.phase === "active" || h.phase === "inactive") log("held", `slot=${slot}`, label, h.phase);
+        }
       }
       for (const c of r.controls) {
         const slot = (c as { playerSlot?: number }).playerSlot ?? 0;
-        if (next[slot] && c.state === "active" && typeof c.value === "number") next[slot].lean = c.value;
-        else if (next[slot]) next[slot].lean = undefined;
+        if (next[slot] && c.state === "active" && typeof c.value === "number") {
+          next[slot].lean = c.value;
+          const side = c.value < -0.5 ? "left" : c.value > 0.5 ? "right" : "center";
+          if (side !== leanSide.get(slot)) {
+            leanSide.set(slot, side);
+            log("lean", `slot=${slot}`, side, c.value.toFixed(2));
+          }
+        } else if (next[slot]) next[slot].lean = undefined;
       }
       slotsRef.current = next;
       dirty.current = true;
@@ -98,7 +118,7 @@ export function CameraCheck() {
       session.close();
       log("closed");
     };
-  }, [app]);
+  }, [app, set]);
 
   const summary = slots.map((s, i) => ({ slot: i, state: s.state, counts: s.counts, held: s.held, lean: s.lean == null ? null : +s.lean.toFixed(2) }));
 
@@ -108,7 +128,7 @@ export function CameraCheck() {
         <div>
           <div className="eyebrow">Camera check · experimental motion</div>
           <h1 className="prompt" style={{ fontSize: 56 }}>
-            Stand in a row. Try: both arms up, one arm, squat, swipe, arms wide, lean.
+            {set === "moves" ? "Stand in a row. Try: both arms up, one arm, squat, swipe left / right." : "Stand in a row. Try: arms spread wide (hold), one arm up (hold), lean left / right."}
           </h1>
         </div>
         <div
