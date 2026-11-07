@@ -131,7 +131,7 @@ TV side, through the Little SDK capabilities declared in the manifest:
 
   game → host
   - `{ type: "screen", to, screen }`, `{ type: "ask", to, kind, on, hz }`, `{ type: "play", to, text|url }` (forwarded to the relay as-is)
-  - `{ type: "say", text }` (the host asks the agent to speak it)
+  - `{ type: "say", text, id?, interrupt? }` (the host speaks it; with an `id`, the host answers `{ type: "said", id, ok, interrupted? }` when playback ends, so a game can open a reaction window only after the line is spoken)
   - `{ type: "state", summary: string, phase: string, scores?: Record<name, number> }` (the host renders it as `data-little` readouts so the agent can narrate and answer questions)
   - `{ type: "done" }` (back to lobby)
 
