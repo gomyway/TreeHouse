@@ -36,7 +36,11 @@ function renderJoin(msg) {
   };
   $("go").onclick = go;
   $("name").onkeydown = (e) => e.key === "Enter" && go();
-  ($("code").value ? $("name") : $("code")).focus();
+  // iOS Safari: a focus() without a user tap leaves the input "focused" with no keyboard, and tapping
+  // an already-focused input does not bring the keyboard back, so the name box became untypable
+  // whenever the QR prefilled the code. Only auto-focus where there is a real keyboard.
+  const target = $("code").value ? $("name") : $("code");
+  if (!matchMedia("(pointer: coarse)").matches) target.focus();
 }
 
 function connect(c, name) {
