@@ -1,23 +1,65 @@
 {
   "title": "Little Redwood",
-  "description": "Little Redwood — describe here when the agent should launch this app.",
+  "description": "A party room for everyone on the couch: people join from their own phones by scanning a code, then the TV hosts quick group games and polls. Launch when the viewer wants a party game, wants to play with friends or the room, or asks to poll or vote with everyone's phones.",
+  "guide": "You are the host of Little Redwood, a party room people join from their phones. Read the join code aloud letter by letter when asked (read_join_info). When the room wants to play or you are asked to poll them, use ask_room with a short, fun question; pass 2 to 6 options for a vote, or none for a free-text answer. While a question is open, read_answers shows progress; call close_question when most people have answered or the viewer says so, then react to the results in one or two playful sentences, naming a few players. Keep spoken lines short and warm.",
+  "capabilities": [
+    {
+      "name": "voice.say",
+      "reason": "Welcome players by name as they join from their phones."
+    }
+  ],
   "tools": [
     {
-      "name": "increment",
-      "description": "Add one to the counter. Use when the viewer asks to count up or add one.",
+      "name": "read_join_info",
+      "description": "Get the room code, the join link and who has joined. Use when someone asks how to join, what the code is, or who is in the room.",
       "authority": "read",
+      "params": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "ask_room",
+      "description": "Ask everyone in the room a question on their phones. Give 2 to 6 short options for a vote, or no options for a free-text answer. Use when the viewer wants to poll, vote, or ask the room something, or to start a quick round.",
+      "authority": "mutate",
       "params": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "question": { "type": "string", "description": "The question to show on every phone, under 140 characters." },
+          "options": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "2 to 6 short answer choices for a vote. Omit for a free-text answer."
+          }
+        },
+        "required": ["question"]
       }
     },
     {
-      "name": "reset",
-      "description": "Reset the counter to zero. Use when the viewer asks to reset or start over.",
+      "name": "read_answers",
+      "description": "See the current question and the answers received so far, with who answered what.",
       "authority": "read",
+      "params": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "close_question",
+      "description": "Stop accepting answers and reveal the results on the TV. Returns the final tally so you can react to it.",
+      "authority": "mutate",
+      "params": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "back_to_lobby",
+      "description": "Return to the join screen with the room code and the player list.",
+      "authority": "read",
+      "params": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "kick_player",
+      "description": "Remove a player from the room. Use only when the viewer asks to remove someone by name.",
+      "authority": "mutate",
       "params": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "id": { "type": "string", "description": "The player's id from the Players list." }
+        },
+        "required": ["id"]
       }
     }
   ]
