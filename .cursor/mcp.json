@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "little": {
+      "command": "little",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

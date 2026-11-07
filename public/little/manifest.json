@@ -1,0 +1,24 @@
+{
+  "title": "Little Redwood",
+  "description": "Little Redwood — describe here when the agent should launch this app.",
+  "tools": [
+    {
+      "name": "increment",
+      "description": "Add one to the counter. Use when the viewer asks to count up or add one.",
+      "authority": "read",
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "reset",
+      "description": "Reset the counter to zero. Use when the viewer asks to reset or start over.",
+      "authority": "read",
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

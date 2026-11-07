@@ -1,0 +1,6 @@
+:root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+body { margin: 0; background: #05060b; color: #e7e9ee; display: grid; place-items: center; min-height: 100vh; }
+.app { text-align: center; }
+.count { font-size: 4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+button { font: inherit; padding: 0.5rem 1rem; margin: 0.25rem; border-radius: 8px;
+  border: 1px solid #2a2d3a; background: #12141c; color: inherit; cursor: pointer; }
