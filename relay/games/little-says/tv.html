@@ -7,89 +7,85 @@
 <style>
   /* 1920x1080 TV canvas, read from across the room. */
   :root { --bg: #0b0f0c; --card: #172019; --line: #2a3a2e; --ink: #f2efe6; --ink2: #b7c2b4; --ink3: #7d8c7f;
-    --l: #ff7a59; --r: #4cc3ff; --good: #6bbf59; --bad: #e4572e; --gold: #ffc145; }
+    --p1: #ff7a59; --p2: #4cc3ff; --good: #6bbf59; --bad: #e4572e; --gold: #ffc145; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink);
     font-family: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #app { position: absolute; inset: 0; padding: 56px 80px 96px; display: flex; flex-direction: column; gap: 28px; }
+  #app { position: absolute; inset: 0; padding: 48px 80px 96px; display: flex; flex-direction: column; gap: 20px; }
+  header { display: flex; align-items: center; justify-content: space-between; height: 88px; }
   .kicker { font-size: 26px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
-  .title { font-size: 44px; font-weight: 800; }
-  .title b { color: var(--gold); }
-  header { display: flex; align-items: center; justify-content: space-between; height: 96px; }
-  .meter { font-size: 28px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .title { font-size: 44px; font-weight: 800; } .title b { color: var(--gold); }
+  .meter { font-size: 26px; color: var(--ink2); }
 
-  .command { flex: none; text-align: center; padding: 20px 0 10px; }
-  .says { font-size: 56px; font-weight: 800; color: var(--gold); min-height: 68px; letter-spacing: -1px; }
-  .says.trap { visibility: hidden; }
-  .do { font-size: 150px; font-weight: 900; letter-spacing: -4px; line-height: 1; }
+  .command { text-align: center; min-height: 230px; display: flex; flex-direction: column; justify-content: center; }
+  .says { font-size: 52px; font-weight: 800; color: var(--gold); min-height: 64px; }
+  .do { font-size: 132px; font-weight: 900; letter-spacing: -4px; line-height: 1; }
   .do.listen { animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 50% { transform: scale(1.12); opacity: .7; } }
-  .window { height: 14px; margin: 26px auto 0; width: 900px; border-radius: 7px; background: var(--line); overflow: hidden; }
+  .window { height: 14px; margin: 22px auto 0; width: 900px; border-radius: 7px; background: var(--line); overflow: hidden; }
   .window i { display: block; height: 100%; width: 0; background: var(--gold); }
   .window.run i { animation: fill var(--w) linear forwards; }
   @keyframes fill { from { width: 100%; } to { width: 0; } }
 
-  .lanes { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; min-height: 0; }
-  .lane { border-radius: 32px; border: 4px solid var(--line); background: var(--card); padding: 32px 40px; display: flex; flex-direction: column; gap: 14px; position: relative; overflow: hidden; }
-  .lane.left { --c: var(--l); } .lane.right { --c: var(--r); }
-  .lane.on { border-color: var(--c); }
-  .lane.off { opacity: .45; }
-  .lane .name { font-size: 64px; font-weight: 900; color: var(--c); }
-  .lane .sub { font-size: 28px; color: var(--ink3); }
-  .lives { font-size: 54px; letter-spacing: 8px; }
-  .pts { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  .verdict { position: absolute; right: 36px; top: 28px; font-size: 54px; font-weight: 900; padding: 10px 28px; border-radius: 22px; animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
-  .verdict.good { background: var(--good); color: #0b150b; }
-  .verdict.bad { background: var(--bad); color: #fff; }
-  .lane.out { filter: grayscale(1); opacity: .5; }
-  .lane.out::after { content: "OUT"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 160px; font-weight: 900; color: rgba(228,87,46,.85); transform: rotate(-12deg); }
+  .stage { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; min-height: 0; }
+  .who { position: relative; border-radius: 32px; border: 4px solid var(--line); background: var(--card); display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+  .who.p1 { --c: var(--p1); } .who.p2 { --c: var(--p2); }
+  .who.seen { border-color: var(--c); }
+  .who.out { filter: grayscale(1); opacity: .5; }
+  .who.out::after { content: "OUT"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 150px; font-weight: 900; color: rgba(228,87,46,.85); transform: rotate(-12deg); }
+  .who svg { width: 300px; height: 100%; background: #0e1510; }
+  .info { padding: 28px 32px; display: flex; flex-direction: column; gap: 10px; }
+  .badge { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; font-size: 44px; font-weight: 900; background: var(--c); color: #10140f; }
+  .name { font-size: 54px; font-weight: 900; color: var(--c); line-height: 1.05; }
+  .sub { font-size: 26px; color: var(--ink3); }
+  .lives { font-size: 48px; letter-spacing: 6px; }
+  .pts { font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .verdict { position: absolute; right: 28px; top: 24px; font-size: 48px; font-weight: 900; padding: 8px 24px; border-radius: 20px; animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
+  .verdict.good { background: var(--good); color: #0b150b; } .verdict.bad { background: var(--bad); color: #fff; }
   @keyframes pop { from { transform: scale(.4); opacity: 0; } }
-  .lane.hit { animation: flash .5s; }
-  @keyframes flash { 0% { box-shadow: 0 0 0 0 var(--c); } 50% { box-shadow: 0 0 60px 10px var(--c); } 100% { box-shadow: none; } }
 
   .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px; }
-  .big { font-size: 110px; font-weight: 900; letter-spacing: -3px; line-height: 1.02; }
-  .big .g { color: var(--gold); }
+  .big { font-size: 110px; font-weight: 900; letter-spacing: -3px; line-height: 1.02; } .big .g { color: var(--gold); }
   .sub2 { font-size: 36px; color: var(--ink2); max-width: 1500px; }
   .ranking { list-style: none; display: flex; flex-direction: column; gap: 12px; width: 1100px; }
   .ranking li { display: grid; grid-template-columns: 72px 1fr auto; gap: 20px; align-items: center; padding: 14px 28px; border-radius: 20px;
     background: var(--card); border: 2px solid var(--line); font-size: 40px; font-weight: 700; text-align: left; }
-  .ranking li.first { border-color: var(--gold); font-size: 50px; }
-  .ranking .rk { color: var(--ink3); text-align: center; }
+  .ranking li.first { border-color: var(--gold); font-size: 50px; } .ranking .rk { color: var(--ink3); text-align: center; }
 </style>
 </head>
 <body>
 <div id="app"><div class="center"><div class="kicker">Little Says</div><div class="big">Getting ready…</div></div></div>
 <script>
-// Little Says: Simon Says called by the TV and judged by its camera (PLAN.md bundle contract +
-// motion_start/motion/motion_status, say {id} → said). Two lanes, left and right, one player each
-// (camera games are capped at 2: that is what tracked reliably on the TV). Only arm-raise and
-// both-arms-raise are requested: they were the moves the TV recognised; "both arms" also counts a
-// left and a right raise within 1.2 s. Everyone else bets on their phone who survives.
+// Little Says: Simon Says called by the TV (voice only) and judged by its camera.
+// Camera: motion_start {mode:"people"} → the host tracks up to 2 real people, numbers them 1 and 2
+// (mirror order on entry), streams their skeletons as `people` and arm raises as `motion`
+// (arm-raise with the person's own side, both-arms-raise). Each phone can claim "That's me: 1/2"
+// to put a name on a figure; phones are optional. Everyone else bets on who survives.
 
-const LIVES = 3, COMMANDS_MAX = 14, CLAIM_MS = 20000, CAL_MS = 6000, REST_MS = 1700;
+const LIVES = 3, COMMANDS_MAX = 14, SETUP_MS = 25000, REST_MS = 1700;
 const MOVES = [
   { key: "left", text: "left arm up", show: "LEFT ARM" },
   { key: "right", text: "right arm up", show: "RIGHT ARM" },
   { key: "both", text: "both arms up", show: "BOTH ARMS" },
 ];
+const COLORS = ["#ff7a59", "#4cc3ff"];
+const BONES = [["left_shoulder","right_shoulder"],["left_shoulder","left_elbow"],["left_elbow","left_wrist"],["right_shoulder","right_elbow"],["right_elbow","right_wrist"],
+  ["left_shoulder","left_hip"],["right_shoulder","right_hip"],["left_hip","right_hip"],["left_hip","left_knee"],["left_knee","left_ankle"],["right_hip","right_knee"],["right_knee","right_ankle"]];
 
 let players = new Map(), joinOrder = [];
-let phase = "lanes", token = 0;
-const lanes = [{ id: null, name: "Left", lives: LIVES, pts: 0, out: false }, { id: null, name: "Right", lives: LIVES, pts: 0, out: false }];
-let slotState = ["vacant", "vacant"], motionState = "starting";
-let mirror = false, calSides = [], autoStart = false;
+let phase = "setup", token = 0;
+const who = [0, 1].map((i) => ({ phone: null, name: `Player ${i + 1}`, lives: LIVES, pts: 0, out: false, seen: false, fig: null, everSeen: false }));
+let motionState = "starting", autoStart = false;
 let n = 0, current = null, verdicts = [null, null];
-const bets = new Map();     // phone id -> lane index
-const betPts = new Map();
+const bets = new Map(), betPts = new Map();
 
 const app = document.getElementById("app");
 const send = (m) => window.parent.postMessage(m, "*");
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const later = (ms, fn) => { const t = token; setTimeout(() => { if (t === token) fn(); }, ms); };
 const active = () => joinOrder.map((id) => players.get(id)).filter((p) => p && p.connected);
-const laneOf = (id) => lanes.findIndex((l) => l.id === id);
-const playing = () => lanes.map((l, i) => i).filter((i) => !lanes[i].out && (lanes[i].id || slotState[i] === "active"));
+const whoOf = (phone) => who.findIndex((w) => w.phone === phone);
+const inGame = () => [0, 1].filter((i) => !who[i].out && who[i].everSeen);
 
 // ---------- speech with completion ----------
 const saidWaiters = new Map(); let sayN = 0;
@@ -98,99 +94,82 @@ function say(text, wait = false) {
   const id = "s" + (++sayN);
   return new Promise((res) => { const t = setTimeout(() => { saidWaiters.delete(id); res(); }, 4500); saidWaiters.set(id, () => { clearTimeout(t); res(); }); send({ type: "say", text, id, interrupt: true }); });
 }
-
 function postState(summary) {
   const scores = {};
-  for (const l of lanes) if (l.id || l.pts) scores[l.name] = l.pts;
+  for (const w of who) if (w.everSeen) scores[w.name] = w.pts;
   send({ type: "state", summary, phase, scores });
 }
 
-// ---------- phone screens ----------
+// ---------- phones ----------
 function screenFor(id) {
-  const li = laneOf(id);
-  if (phase === "lanes") {
-    if (li >= 0) return { kind: "info", title: `You're on the ${li === 0 ? "LEFT" : "RIGHT"}`, body: "Stand in your lane in front of the TV." };
-    const items = [];
-    if (!lanes[0].id) items.push({ id: "lane0", label: "I'll play on the LEFT" });
-    if (!lanes[1].id) items.push({ id: "lane1", label: "I'll play on the RIGHT" });
-    items.push({ id: "watch", label: "I'll watch and bet" });
-    return { kind: "buttons", prompt: "Little Says: two players stand in front of the TV.", items };
+  const wi = whoOf(id);
+  if (wi >= 0) {
+    const w = who[wi];
+    if (phase === "final") return { kind: "info", title: w.out ? "You're out!" : "You survived!", body: `${w.pts} points.` };
+    if (phase === "setup") return { kind: "info", title: `You're ${wi + 1}`, body: "Stand where the TV shows figure " + (wi + 1) + "." };
+    return { kind: "info", title: w.out ? "You're out!" : `${"♥".repeat(w.lives)}  ${w.pts} pts`, body: w.out ? "Cheer from the couch." : "Listen to Little." };
   }
-  if (li >= 0) {
-    const l = lanes[li];
-    if (phase === "final") return { kind: "info", title: l.out ? "You're out!" : "You survived!", body: `${l.pts} points.` };
-    return { kind: "info", title: l.out ? "You're out!" : `${"♥".repeat(l.lives)}  ${l.pts} pts`, body: l.out ? "Cheer from the couch." : "Eyes on the TV, ears on Little." };
+  if (phase === "setup") {
+    const items = [0, 1].filter((i) => !who[i].phone).map((i) => ({ id: "me" + i, label: `That's me: ${i + 1}` }));
+    items.push({ id: "watch", label: "I'm watching (bet)" });
+    return { kind: "buttons", prompt: "Look at the TV. Which figure is you?", items };
   }
-  if ((phase === "calibrate" || phase === "play") && !bets.has(id) && n < 4) {
-    const items = lanes.map((l, i) => ({ id: "bet" + i, label: `${l.name} survives` }));
-    return { kind: "buttons", prompt: "Place your bet: who lasts longer?", items };
+  if (phase === "play" && !bets.has(id) && n < 4) {
+    return { kind: "buttons", prompt: "Who lasts longer?", items: [0, 1].filter((i) => who[i].everSeen).map((i) => ({ id: "bet" + i, label: `${who[i].name} survives` })) };
   }
   if (phase === "final") return { kind: "info", title: betPts.get(id) ? "Your bet won!" : "Game over", body: "Look at the TV." };
-  return { kind: "info", title: bets.has(id) ? `You bet on ${lanes[bets.get(id)].name}` : "Watching", body: "Look at the TV." };
+  return { kind: "info", title: bets.has(id) ? `You bet on ${who[bets.get(id)].name}` : "Watching", body: "Look at the TV." };
 }
 const refreshPhones = () => { for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) }); };
 
 // ---------- flow ----------
-function startLanes() {
-  token++; phase = "lanes";
-  send({ type: "motion_start", actions: ["arm-raise", "both-arms-raise"], maxPlayers: 2 });
+function startSetup() {
+  token++; phase = "setup";
+  send({ type: "motion_start", mode: "people", maxPlayers: 2 });
   refreshPhones();
   say(active().length
-    ? "Little Says! One or two players, stand in front of the TV, left and right. Phones are optional: tap a lane to show your name, or bet on who survives."
-    : "Little Says! One or two players, stand in front of the TV, one on the left and one on the right.");
-  postState("Players step in front of the TV, left and right lanes. Phones are optional.");
+    ? "Little Says! One or two players, stand in front of the TV. Find your figure, and tap That's me on your phone if you like."
+    : "Little Says! One or two players, stand in front of the TV.");
+  postState("Setup: players step in front of the TV; each gets a numbered figure.");
   render();
-  later(CLAIM_MS, startCalibrate);
+  later(SETUP_MS, startPlay);
 }
-function laneClaim(id, choice) {
-  if (phase !== "lanes" || laneOf(id) >= 0) return;
-  if (choice === "lane0" || choice === "lane1") {
-    const i = choice === "lane0" ? 0 : 1;
-    if (lanes[i].id) return send({ type: "screen", to: id, screen: screenFor(id) });
-    lanes[i].id = id; lanes[i].name = players.get(id)?.name ?? lanes[i].name;
-    say(`${lanes[i].name} takes the ${i === 0 ? "left" : "right"}!`);
+function claim(phone, choice) {
+  if (phase !== "setup" || whoOf(phone) >= 0) return;
+  if (choice === "me0" || choice === "me1") {
+    const i = choice === "me0" ? 0 : 1;
+    if (!who[i].phone) {
+      who[i].phone = phone; who[i].name = players.get(phone)?.name ?? who[i].name;
+      say(`Hi ${who[i].name}, you're number ${i + 1}.`);
+    }
   }
   refreshPhones(); render();
-  if (lanes[0].id && lanes[1].id) later(2500, startCalibrate);
-}
-
-function startCalibrate() {
-  if (phase !== "lanes") return;
-  token++; phase = "calibrate"; calSides = [];
-  refreshPhones(); render();
-  say("Quick warm up. Players, raise your LEFT arm. Hold it.");
-  postState("Warm up: players raise their left arm so the camera learns left from right.");
-  later(CAL_MS, () => {
-    const r = calSides.filter((s) => s === "right").length, l = calSides.filter((s) => s === "left").length;
-    mirror = r > l;
-    later(0, startPlay);
-  });
 }
 
 function startPlay() {
+  if (phase !== "setup") return;
   token++; phase = "play"; n = 0;
-  if (!playing().length) { say("I can't see anyone in the lanes. Let's try again later."); return finish(); }
-  say("Remember, only move when Little says. Arms down. Here we go!", true).then(() => later(600, nextCommand));
+  if (!inGame().length) { say("I can't see anyone in front of the TV. Let's try again later."); return finish(); }
   refreshPhones(); render();
+  say("Only move when Little says. Arms down. Here we go!", true).then(() => later(600, nextCommand));
 }
 
-function windowMs() { return Math.max(1800, 3200 - n * 110); }
-function trapChance() { return Math.min(0.45, 0.2 + n * 0.02); }
+const windowMs = () => Math.max(1800, 3200 - n * 110);
+const trapChance = () => Math.min(0.45, 0.2 + n * 0.02);
 
 async function nextCommand() {
   if (phase !== "play") return;
-  if (n >= COMMANDS_MAX || !playing().length || (lanes.filter((l) => l.id || l.pts).length >= 2 && playing().length < 2)) return finish();
+  const playing = inGame(), started = who.filter((w) => w.everSeen).length;
+  if (n >= COMMANDS_MAX || !playing.length || (started >= 2 && playing.length < 2)) return finish();
   n++;
   const move = MOVES[Math.floor(Math.random() * MOVES.length)];
   const trap = n > 2 && Math.random() < trapChance();
-  current = { move, trap, events: [[], []], open: false, openedAt: 0 };
+  current = { move, trap, events: [[], []], listenFrom: Date.now() + 300 };
   verdicts = [null, null];
   render();
-  const t = token, myCurrent = current;
-  current.listenFrom = Date.now() + 300;
-  await say(trap ? `${cap(move.text)}!` : `Little says, ${move.text}!`, true);
-  if (t !== token || current !== myCurrent) return;
-  current.open = true; current.openedAt = Date.now();
+  const t = token, mine = current;
+  await say(trap ? cap(move.text) + "!" : `Little says, ${move.text}!`, true);
+  if (t !== token || current !== mine) return;
   const w = windowMs();
   render(w);
   later(w, judge);
@@ -198,106 +177,101 @@ async function nextCommand() {
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 
 function onMotion(m) {
-  if (phase === "calibrate") { for (const a of m.actions ?? []) if (a.id === "arm-raise" && a.side) calSides.push(a.side); return; }
-  if (phase !== "play" || !current || Date.now() < (current.listenFrom ?? 0)) return;
-  for (const a of m.actions ?? []) {
-    const i = a.slot === 1 ? 1 : 0;
-    const side = a.side ? (mirror ? (a.side === "left" ? "right" : "left") : a.side) : null;
-    current.events[i].push({ id: a.id, side, at: Date.now() });
-  }
+  if (phase !== "play" || !current || Date.now() < current.listenFrom) return;
+  for (const a of m.actions ?? []) { const i = a.slot === 1 ? 1 : 0; current.events[i].push({ id: a.id, side: a.side ?? null, at: Date.now() }); }
 }
-
 function moved(events, key) {
   if (key === "both") {
     if (events.some((e) => e.id === "both-arms-raise")) return true;
     const ls = events.filter((e) => e.side === "left").map((e) => e.at), rs = events.filter((e) => e.side === "right").map((e) => e.at);
     return ls.some((a) => rs.some((b) => Math.abs(a - b) < 1200));
   }
-  return events.some((e) => e.id === "arm-raise" && e.side === key);
+  // A raise of only the commanded arm; raising both on a one-arm command counts as wrong.
+  const sides = new Set(events.filter((e) => e.id === "arm-raise").map((e) => e.side));
+  return sides.has(key) && !sides.has(key === "left" ? "right" : "left");
 }
-
 function judge() {
   if (phase !== "play" || !current) return;
-  const c = current; c.open = false;
-  const lines = [];
-  for (const i of playing()) {
-    const ev = c.events[i], l = lanes[i];
-    const any = ev.length > 0;
+  const c = current, lines = [];
+  for (const i of inGame()) {
+    const ev = c.events[i], w = who[i], any = ev.length > 0;
     let ok, why;
     if (c.trap) { ok = !any; why = ok ? "STILL!" : "GOTCHA"; }
     else if (moved(ev, c.move.key)) { ok = true; why = "✓"; }
     else { ok = false; why = any ? "WRONG ARM" : "TOO SLOW"; }
     verdicts[i] = { ok, why };
-    if (ok) l.pts += 100;
+    if (ok) w.pts += 100;
     else {
-      l.lives--;
-      if (l.lives <= 0) { l.out = true; lines.push(`${l.name} is out!`); }
-      else if (c.trap) lines.push(`Gotcha, ${l.name}! I never said Little says.`);
-      else if (why === "WRONG ARM") lines.push(`${l.name}, other arm!`);
+      w.lives--;
+      if (w.lives <= 0) { w.out = true; lines.push(`${w.name} is out!`); }
+      else if (c.trap) lines.push(`Gotcha, ${w.name}! I never said Little says.`);
+      else if (why === "WRONG ARM") lines.push(`${w.name}, other arm!`);
     }
   }
-  render();
-  refreshPhones();
-  postState(`Command ${n}: ${c.trap ? "trap, " : ""}${c.move.text}. ${lanes.filter((l) => l.id || l.pts).map((l) => `${l.name} ${l.out ? "out" : l.lives + " lives"}, ${l.pts} pts`).join("; ")}`);
+  render(); refreshPhones();
+  postState(`Command ${n}: ${c.trap ? "trap, " : ""}${c.move.text}. ${who.filter((w) => w.everSeen).map((w) => `${w.name} ${w.out ? "out" : w.lives + " lives"}, ${w.pts} pts`).join("; ")}`);
   const line = lines.slice(0, 2).join(" ");
   const go = () => later(REST_MS, nextCommand);
   if (line) say(line, true).then(go); else go();
 }
 
+let final = null;
 function finish() {
   token++; phase = "final";
   send({ type: "motion_stop" });
-  const ranked = lanes.filter((l) => l.id || l.pts).sort((a, b) => (b.out ? 0 : 1) - (a.out ? 0 : 1) || b.pts - a.pts || b.lives - a.lives);
-  const winner = ranked[0];
-  const winIdx = winner ? lanes.indexOf(winner) : -1;
-  const correct = [];
-  for (const [id, li] of bets) if (li === winIdx) { betPts.set(id, 100); correct.push(players.get(id)?.name ?? "someone"); }
-  round = { ranked, correct };
-  const line = winner ? `${winner.name} wins Little Says with ${winner.pts} points!${correct.length ? ` Good bets from ${correct.slice(0, 3).join(", ")}.` : ""}` : "Nobody played. Next time!";
-  say(line);
-  refreshPhones();
-  postState(`Game over. ${line}`);
-  render();
+  const ranked = who.filter((w) => w.everSeen).sort((a, b) => (b.out ? 0 : 1) - (a.out ? 0 : 1) || b.pts - a.pts || b.lives - a.lives);
+  const win = ranked[0], wi = win ? who.indexOf(win) : -1, correct = [];
+  for (const [id, i] of bets) if (i === wi) { betPts.set(id, 100); correct.push(players.get(id)?.name ?? "someone"); }
+  final = { ranked, correct };
+  const line = win ? `${win.name} wins Little Says with ${win.pts} points!${correct.length ? ` Good bets from ${correct.slice(0, 3).join(", ")}.` : ""}` : "Nobody played. Next time!";
+  say(line); refreshPhones(); postState(`Game over. ${line}`); render();
   later(12000, () => send({ type: "done" }));
 }
-let round = null;
 
 // ---------- TV rendering ----------
-function laneHtml(i) {
-  const l = lanes[i];
-  const seen = slotState[i] === "active";
-  const v = verdicts[i];
-  const cls = ["lane", i === 0 ? "left" : "right", seen ? "on" : "", l.out ? "out" : "", phase === "play" && !l.id && !seen ? "off" : "", v && v.ok ? "hit" : ""].join(" ");
-  const status = seen ? "camera sees you" : slotState[i] === "acquiring" || slotState[i] === "temporarily-lost" ? "finding you…" : "step into this lane";
-  return `<section class="${cls}"><div class="name">${esc(l.name)}</div><div class="sub">${i === 0 ? "Left lane" : "Right lane"} · ${status}</div>
-    <div class="lives">${"♥".repeat(Math.max(0, l.lives))}<span style="opacity:.2">${"♥".repeat(LIVES - Math.max(0, l.lives))}</span></div>
-    <div class="pts">${l.pts} pts</div>${v ? `<div class="verdict ${v.ok ? "good" : "bad"}">${v.why}</div>` : ""}</section>`;
+function figureSvg(i) {
+  const f = who[i].fig, c = COLORS[i];
+  if (!f) return `<svg viewBox="0 0 300 600"><text x="150" y="300" fill="#7d8c7f" font-size="26" text-anchor="middle">step in</text></svg>`;
+  // Fit the person's box into the panel.
+  const b = f.box, s = Math.min(260 / Math.max(b.w, 0.01), 560 / Math.max(b.h, 0.01));
+  const X = (x) => 150 + (x - (b.x + b.w / 2)) * s, Y = (y) => 300 + (y - (b.y + b.h / 2)) * s;
+  const P = f.points, ok = (k) => P[k] && P[k][2] >= 0.3;
+  let out = "";
+  for (const [a, z] of BONES) if (ok(a) && ok(z)) out += `<line x1="${X(P[a][0])}" y1="${Y(P[a][1])}" x2="${X(P[z][0])}" y2="${Y(P[z][1])}" stroke="${c}" stroke-width="10" stroke-linecap="round"/>`;
+  if (ok("nose")) out += `<circle cx="${X(P.nose[0])}" cy="${Y(P.nose[1])}" r="26" fill="none" stroke="${c}" stroke-width="8"/>`;
+  for (const side of ["left", "right"]) if (f.arms?.[side] && ok(side + "_wrist")) out += `<circle cx="${X(P[side + "_wrist"][0])}" cy="${Y(P[side + "_wrist"][1])}" r="18" fill="${c}"/>`;
+  return `<svg viewBox="0 0 300 600">${out}</svg>`;
 }
-function render(windowMsArg) {
+function whoHtml(i) {
+  const w = who[i], v = verdicts[i];
+  const status = w.seen ? "the camera sees you" : w.everSeen ? "come back into view" : "step in front of the TV";
+  return `<section class="who p${i + 1} ${w.seen ? "seen" : ""} ${w.out ? "out" : ""}" id="who${i}">${figureSvg(i)}
+    <div class="info"><div class="badge">${i + 1}</div><div class="name">${esc(w.name)}</div><div class="sub">${status}</div>
+    ${phase === "setup" ? "" : `<div class="lives">${"♥".repeat(Math.max(0, w.lives))}<span style="opacity:.2">${"♥".repeat(LIVES - Math.max(0, w.lives))}</span></div><div class="pts">${w.pts} pts</div>`}</div>
+    ${v ? `<div class="verdict ${v.ok ? "good" : "bad"}">${v.why}</div>` : ""}</section>`;
+}
+function render(windowArg) {
   if (phase === "final") {
-    const r = round;
+    const r = final;
     app.innerHTML = `<div class="center"><div class="kicker">Little Says · Final</div><div class="big">${r.ranked[0] ? `<span class="g">${esc(r.ranked[0].name)}</span> wins` : "Game over"}</div>
-      <ol class="ranking">${r.ranked.map((l, i) => `<li class="${i === 0 ? "first" : ""}"><span class="rk">${i + 1}</span><span>${esc(l.name)}${l.out ? " · out" : ""}</span><span>${l.pts}</span></li>`).join("")}</ol>
-      <div class="sub2">${r.correct.length ? `Winning bets: ${esc(r.correct.join(", "))}` : "Nobody bet on the winner."}</div></div>`;
+      <ol class="ranking">${r.ranked.map((w, i) => `<li class="${i === 0 ? "first" : ""}"><span class="rk">${i + 1}</span><span>${esc(w.name)}${w.out ? " · out" : ""}</span><span>${w.pts}</span></li>`).join("")}</ol>
+      <div class="sub2">${r.correct.length ? `Winning bets: ${esc(r.correct.join(", "))}` : ""}</div></div>`;
     return;
   }
-  const head = `<header><div><div class="kicker">${phase === "play" ? `Command ${n} of ${COMMANDS_MAX}` : phase === "calibrate" ? "Warm up" : "Pick your lane"}</div>
-    <div class="title"><b>Little</b> Says</div></div><div class="meter">camera: ${esc(motionState)} · bets: ${bets.size}</div></header>`;
-  let mid = "";
-  if (phase === "lanes") mid = `<div class="command"><div class="says">One or two players · left and right</div><div class="do" style="font-size:96px">${slotState.includes("active") ? "Get ready…" : "Stand in front of the TV"}</div></div>`;
-  else if (phase === "calibrate") mid = `<div class="command"><div class="says">Warm up</div><div class="do">LEFT ARM UP</div></div>`;
+  const head = `<header><div><div class="kicker">${phase === "play" ? `Command ${n} of ${COMMANDS_MAX}` : "Who's playing?"}</div><div class="title"><b>Little</b> Says</div></div>
+    <div class="meter">camera: ${esc(motionState)}${bets.size ? ` · bets: ${bets.size}` : ""}</div></header>`;
+  let mid;
+  if (phase === "setup") mid = `<div class="command"><div class="says">Find your figure</div><div class="do" style="font-size:92px">${who.some((w) => w.seen) ? "Raise an arm to wave!" : "Stand in front of the TV"}</div></div>`;
   else if (current) {
-    // Voice only: the command is never shown while it can still be obeyed, or reading it would
-    // give it away. Once judged, show what it was (and whether it was a trap) for the audience.
-    const w = windowMsArg ?? 0;
     const judged = verdicts.some(Boolean);
     mid = judged
       ? `<div class="command"><div class="says">${current.trap ? "Trap! Nobody said Little says:" : "Little says:"}</div><div class="do" style="color:${current.trap ? "var(--bad)" : "var(--ink)"}">${current.move.show}</div></div>`
-      : `<div class="command"><div class="says">Listen…</div><div class="do listen">👂</div>
-      <div class="window ${windowMsArg ? "run" : ""}" style="--w:${w}ms"><i></i></div></div>`;
+      : `<div class="command"><div class="says">Listen…</div><div class="do listen">👂</div><div class="window ${windowArg ? "run" : ""}" style="--w:${windowArg ?? 0}ms"><i></i></div></div>`;
   } else mid = `<div class="command"><div class="says">Only move when Little says</div><div class="do">ARMS DOWN</div></div>`;
-  app.innerHTML = head + mid + `<div class="lanes">${laneHtml(0)}${laneHtml(1)}</div>`;
+  app.innerHTML = head + mid + `<div class="stage">${whoHtml(0)}${whoHtml(1)}</div>`;
 }
+// Figures repaint at the people rate without re-rendering the whole screen.
+function paintFigures() { for (const i of [0, 1]) { const el = document.getElementById("who" + i); if (!el) continue; const svg = el.querySelector("svg"); if (svg) svg.outerHTML = figureSvg(i); el.classList.toggle("seen", who[i].seen); } }
 
 // ---------- host messages ----------
 function setPlayers(list) {
@@ -307,42 +281,36 @@ function setPlayers(list) {
   for (const p of active()) if (!before.has(p.id)) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
   render();
 }
+function onPeople(people) {
+  const was = who.map((w) => w.seen);
+  for (const i of [0, 1]) { const p = (people ?? []).find((x) => x.n === i + 1); who[i].fig = p ?? null; who[i].seen = !!p; if (p) who[i].everSeen = true; }
+  if (phase === "setup" && who.some((w) => w.seen) && !autoStart) { autoStart = true; later(8000, startPlay); }
+  if (was.some((s, i) => s !== who[i].seen)) render(); else paintFigures();
+}
 function onVoice(text) {
   const t = String(text ?? "").toLowerCase();
-  if (/\bswap\b|switch (lanes|sides)/.test(t)) {
-    const [a, b] = [lanes[0], lanes[1]]; lanes[0] = { ...b }; lanes[1] = { ...a };
-    say("Swapped! Left is right and right is left."); refreshPhones(); render(); return;
-  }
-  if (/\b(start|go|ready|begin)\b/.test(t) && phase === "lanes") return startCalibrate();
+  if (/\b(start|go|ready|begin)\b/.test(t) && phase === "setup") return startPlay();
   if (/\b(stop|end|enough|finish)\b/.test(t) && phase === "play") return finish();
+  if (/\bswap\b/.test(t)) { const [a, b] = [who[0].name, who[1].name]; who[0].name = b; who[1].name = a; const [pa, pb] = [who[0].phone, who[1].phone]; who[0].phone = pb; who[1].phone = pa; say("Swapped names."); refreshPhones(); render(); }
 }
 window.addEventListener("message", (e) => {
   const m = e.data;
   if (!m || typeof m.type !== "string") return;
   switch (m.type) {
-    case "init": setPlayers(m.players); startLanes(); break;
+    case "init": setPlayers(m.players); startSetup(); break;
     case "players": setPlayers(m.players); break;
     case "input": {
-      const id = m.data?.id;
-      if (!id) return;
-      if (phase === "lanes") laneClaim(m.player, id);
-      else if (String(id).startsWith("bet") && laneOf(m.player) < 0 && !bets.has(m.player)) {
-        bets.set(m.player, id === "bet1" ? 1 : 0);
-        send({ type: "screen", to: m.player, screen: screenFor(m.player) }); render();
-      }
+      const id = m.data?.id; if (!id) return;
+      if (phase === "setup") claim(m.player, id);
+      else if (String(id).startsWith("bet") && whoOf(m.player) < 0 && !bets.has(m.player)) { bets.set(m.player, id === "bet1" ? 1 : 0); send({ type: "screen", to: m.player, screen: screenFor(m.player) }); render(); }
       break;
     }
+    case "people": onPeople(m.people); break;
     case "motion": onMotion(m); break;
-    case "motion_status": {
+    case "motion_status":
       motionState = m.state + (m.reason ? ` (${m.reason})` : "");
-      slotState = [0, 1].map((i) => (m.slots ?? []).find((s) => s.slot === i)?.state ?? "vacant");
-      // No phone needed: once the camera sees someone in a lane, give a second player a few
-      // seconds to step in, then warm up.
-      if (phase === "lanes" && slotState.includes("active") && !autoStart) { autoStart = true; later(6000, startCalibrate); }
-      if (m.state === "unavailable" && phase !== "final") { say("I can't use the camera here, so Little Says is off for now."); finish(); return; }
-      if (phase !== "play") render(); else { for (const i of [0, 1]) document.querySelectorAll(".lane")[i]?.classList.toggle("on", slotState[i] === "active"); }
+      if (m.state === "unavailable" && phase !== "final") { say("I can't use the camera right now, so Little Says is off."); finish(); }
       break;
-    }
     case "said": { const f = saidWaiters.get(m.id); if (f) { saidWaiters.delete(m.id); f(); } break; }
     case "voice": onVoice(m.text); break;
   }

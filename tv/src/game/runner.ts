@@ -1,6 +1,7 @@
 import type { LittleApp } from "@kabletv/little-sdk";
 import type { Player, PlayerId, RoomTransport, Screen, SensorKind } from "../room/model";
 import { botAnswer } from "./bots";
+import { trackPeople } from "./people";
 import { createMotionSession, MOTION_ACTION_IDS, MOTION_CONTROL_IDS, MOTION_HELD_IDS } from "@kabletv/little-motion";
 
 // Bridges one game bundle (a sandboxed iframe) to the room and to the Little host.
@@ -11,7 +12,10 @@ import { createMotionSession, MOTION_ACTION_IDS, MOTION_CONTROL_IDS, MOTION_HELD
 //                say {text} · state {summary, phase, scores?} · done
 //                ai {id, instruction, context?, schema?} · ai_image {id, hint, instruction?}
 //                bot_answer {id, prompt, humans, imitate?, caught?, effort?, names?} (see ./bots.ts)
-//                motion_start {actions?, held?, controls?, maxPlayers?} · motion_stop
+//                motion_start {actions?, held?, controls?, maxPlayers?, mode?: "people"} · motion_stop
+//                (mode "people": one raw stream, phantom filtering, numbered figures 1..2 and
+//                 skeleton-based arm-raise / both-arms-raise; adds host → game
+//                 people {people:[{n, box, points, arms}]} ~10 Hz. See ./people.ts)
 //   host → game  motion {actions:[{id, side?, slot}], held:[{id, side?, slot}], controls:[{id, value, slot}]}
 //                motion_status {state, reason?, slots:[{slot, state}]} · said {id, ok, interrupted?}
 // Camera games are capped at 2 players (tested on the TV); request only what a phase needs,
@@ -54,6 +58,32 @@ export function createGameHost(opts: {
     stopMotion();
     if (!app.can("sense.motion")) {
       post({ type: "motion_status", state: "unavailable", reason: "not-granted", slots: [] });
+      return;
+    }
+    if (m.mode === "people") {
+      let provider = "starting";
+      let seen = "";
+      const status = (people: { n: number }[]) => {
+        const slots = [1, 2].map((n) => ({ slot: n - 1, state: people.some((p) => p.n === n) ? "active" : "vacant" }));
+        const key = provider + "|" + slots.map((x) => x.state).join(",");
+        if (key === seen) return;
+        seen = key;
+        post({ type: "motion_status", state: provider === "ready" ? "ready" : provider, slots });
+      };
+      let last: { n: number }[] = [];
+      motion = trackPeople(app, {
+        onStatus: (state, reason) => {
+          provider = state;
+          if (state === "unavailable" || state === "ended") post({ type: "motion_status", state: "unavailable", reason, slots: [] });
+          else status(last);
+        },
+        onPeople: (people) => {
+          last = people;
+          status(people);
+          post({ type: "people", people });
+        },
+        onActions: (actions) => post({ type: "motion", actions, held: [], controls: [] }),
+      });
       return;
     }
     const pick = <T extends string>(v: unknown, allowed: readonly T[]) =>
