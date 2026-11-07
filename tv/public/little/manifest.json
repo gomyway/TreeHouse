@@ -1,7 +1,7 @@
 {
   "title": "Little Redwood",
-  "description": "A party room for everyone on the couch: people join from their own phones by scanning a code, then the TV hosts quick group games and polls. Launch when the viewer wants a party game, wants to play with friends or the room, or asks to poll or vote with everyone's phones.",
-  "guide": "You are the host of Little Redwood, a party room people join from their phones. Read the join code aloud letter by letter when asked (read_join_info). When the room wants to play or you are asked to poll them, use ask_room with a short, fun question; pass 2 to 6 options for a vote, or none for a free-text answer. While a question is open, read_answers shows progress; call close_question when most people have answered or the viewer says so, then react to the results in one or two playful sentences, naming a few players. Keep spoken lines short and warm.",
+  "description": "A party room for everyone on the couch: people join from their own phones by scanning a code, then the TV hosts party games like Who's the Bot? (spot the AI among your friends), writes brand-new games from a spoken idea, and runs quick polls. Launch when the viewer wants a party game, wants to play with friends or the room, wants to make up a game, or asks to poll everyone's phones.",
+  "guide": "You are the host of Little Redwood, a party room people join from their phones. Read the join code aloud letter by letter when asked (read_join_info). To play, use list_games and start_game; Who's the Bot? is the house favourite. If the viewer describes a new game, call create_game with their description. While a game runs, the game speaks its own lines: use read_game_state for questions and pass the viewer's instructions to tell_game verbatim. ask_room polls everyone's phones; close_question reveals the results. Keep spoken lines short and warm.",
   "capabilities": [
     {
       "name": "voice.say",
@@ -13,7 +13,10 @@
       "name": "read_join_info",
       "description": "Get the room code, the join link and who has joined. Use when someone asks how to join, what the code is, or who is in the room.",
       "authority": "read",
-      "params": { "type": "object", "properties": {} }
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "ask_room",
@@ -22,33 +25,127 @@
       "params": {
         "type": "object",
         "properties": {
-          "question": { "type": "string", "description": "The question to show on every phone, under 140 characters." },
+          "question": {
+            "type": "string",
+            "description": "The question to show on every phone, under 140 characters."
+          },
           "options": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "2 to 6 short answer choices for a vote. Omit for a free-text answer."
           }
         },
-        "required": ["question"]
+        "required": [
+          "question"
+        ]
       }
     },
     {
       "name": "read_answers",
       "description": "See the current question and the answers received so far, with who answered what.",
       "authority": "read",
-      "params": { "type": "object", "properties": {} }
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "close_question",
       "description": "Stop accepting answers and reveal the results on the TV. Returns the final tally so you can react to it.",
       "authority": "mutate",
-      "params": { "type": "object", "properties": {} }
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_games",
+      "description": "List the party games available to play: built-in ones and any the room created. Use when someone asks what games there are.",
+      "authority": "read",
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "start_game",
+      "description": "Start a game for everyone in the room. Pass the game's id or its title, e.g. \"Who's the Bot?\". Use when the viewer wants to play something.",
+      "authority": "mutate",
+      "params": {
+        "type": "object",
+        "properties": {
+          "game": {
+            "type": "string",
+            "description": "The game's id or title from list_games."
+          }
+        },
+        "required": [
+          "game"
+        ]
+      }
+    },
+    {
+      "name": "tell_game",
+      "description": "Pass the viewer's instruction to the running game, word for word: skip, reveal now, make the bots smarter or dumber, add a bot, make the next prompt about a topic.",
+      "authority": "mutate",
+      "params": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "What the viewer asked the game to do, verbatim."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "read_game_state",
+      "description": "See what is happening in the running game: phase, a summary and the scores. Use to answer questions about the game or the score.",
+      "authority": "read",
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "stop_game",
+      "description": "End the running game and return everyone to the lobby.",
+      "authority": "mutate",
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_game",
+      "description": "Write a brand-new party game from the viewer's description, then start it. Takes one to three minutes. Use when the viewer says something like \"make a game where...\".",
+      "authority": "mutate",
+      "params": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "The viewer's description of the game, in their words, with any rules they mentioned."
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
     },
     {
       "name": "back_to_lobby",
       "description": "Return to the join screen with the room code and the player list.",
       "authority": "read",
-      "params": { "type": "object", "properties": {} }
+      "params": {
+        "type": "object",
+        "properties": {}
+      }
     },
     {
       "name": "kick_player",
@@ -57,9 +154,14 @@
       "params": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "description": "The player's id from the Players list." }
+          "id": {
+            "type": "string",
+            "description": "The player's id from the Players list."
+          }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ]
       }
     }
   ]

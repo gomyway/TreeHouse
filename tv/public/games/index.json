@@ -1,0 +1,10 @@
+[
+  {
+    "id": "whos-the-bot",
+    "title": "Who's the Bot?",
+    "description": "Answer a funny prompt, then catch the AI hiding among you. Final round: find the human.",
+    "phases": ["write", "vote", "reveal", "final"],
+    "minPlayers": 1,
+    "maxPlayers": 40
+  }
+]

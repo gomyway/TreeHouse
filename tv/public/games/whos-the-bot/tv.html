@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, initial-scale=1">
+<title>Who's the Bot?</title>
+<style>
+  /* Laid out for the 1920x1080 TV canvas; read from across the room. */
+  :root {
+    --bg: #0b0f0c; --card: #172019; --line: #2a3a2e; --ink: #f2efe6; --ink2: #b7c2b4; --ink3: #7d8c7f;
+    --human: #ffc145; --bot: #4cc3ff; --hot: #e4572e; --good: #6bbf59;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink);
+    font-family: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { background:
+    radial-gradient(1100px 600px at 90% -10%, rgba(76,195,255,.13), transparent 60%),
+    radial-gradient(900px 600px at -5% 110%, rgba(255,193,69,.10), transparent 60%), var(--bg); }
+  #app { position: absolute; inset: 0; padding: 56px 80px 96px; display: flex; flex-direction: column; gap: 28px; }
+
+  header { display: flex; align-items: center; gap: 32px; height: 96px; }
+  .kicker { font-size: 26px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
+  .mode { font-size: 40px; font-weight: 800; letter-spacing: -.5px; }
+  .mode b { color: var(--bot); }
+  .mode.human b { color: var(--human); }
+  .teams { margin-left: auto; display: flex; align-items: center; gap: 18px; font-size: 28px; font-weight: 700; }
+  .teams .h { color: var(--human); } .teams .b { color: var(--bot); }
+  .bar { width: 360px; height: 18px; border-radius: 9px; background: var(--bot); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--human); transition: width .8s; }
+  .ring { width: 96px; height: 96px; position: relative; flex: none; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  .prompt { font-size: 76px; line-height: 1.12; font-weight: 800; letter-spacing: -1px; max-width: 1700px; }
+  .sub { font-size: 34px; color: var(--ink2); }
+  .dots { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+  .dots i { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); }
+  .dots i.on { background: var(--good); border-color: var(--good); animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
+
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; align-content: start; flex: 1; }
+  .grid.n-few { grid-template-columns: repeat(3, 1fr); }
+  .cardw { perspective: 1400px; }
+  .card { position: relative; min-height: 170px; transition: transform .7s cubic-bezier(.3,1.3,.5,1); transform-style: preserve-3d; }
+  .face { position: absolute; inset: 0; backface-visibility: hidden; border-radius: 24px; padding: 22px 26px 18px 92px;
+    background: var(--card); border: 2px solid var(--line); display: flex; flex-direction: column; justify-content: center; }
+  .face .letter { position: absolute; left: 22px; top: 22px; width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center;
+    font-size: 30px; font-weight: 800; background: #0b0f0c; border: 2px solid var(--line); color: var(--ink2); }
+  .face .txt { font-size: 38px; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: break-word; }
+  .face .meta { margin-top: 10px; font-size: 26px; color: var(--ink3); display: flex; gap: 16px; align-items: center; min-height: 32px; }
+  .face .meta .stars { color: var(--human); font-weight: 800; }
+  .face .meta .who { color: var(--ink); font-weight: 700; }
+  .back { transform: rotateY(180deg); background: linear-gradient(135deg, #0f2a38, #0b1820); border-color: var(--bot); }
+  .back .robot { font-size: 64px; position: absolute; left: 18px; top: 50%; transform: translateY(-50%); }
+  .back .txt { color: #cfeeff; }
+  .back .meta .who { color: var(--bot); }
+  .card.flipped { transform: rotateY(180deg); }
+  .card.human .face { border-color: var(--human); box-shadow: 0 0 40px rgba(255,193,69,.35); }
+  .card.dim { opacity: .35; }
+  .card.glitch { animation: glitch .6s steps(2) 2; }
+  @keyframes glitch { 0% { transform: translate(0); filter: none; } 25% { transform: translate(-6px, 3px); filter: hue-rotate(90deg); }
+    50% { transform: translate(5px, -4px); } 75% { transform: translate(-3px, -2px); filter: hue-rotate(-90deg); } 100% { transform: translate(0); } }
+  @keyframes pop { from { transform: scale(.4); opacity: 0; } }
+
+  .banner { font-size: 64px; font-weight: 800; letter-spacing: -1px; }
+  .banner .b { color: var(--bot); } .banner .h { color: var(--human); }
+  .aiguess { font-size: 34px; color: var(--ink2); padding: 18px 26px; border-left: 6px solid var(--bot); background: rgba(76,195,255,.08); border-radius: 12px; max-width: 1600px; }
+  .aiguess b { color: var(--bot); }
+
+  .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px; }
+  .big { font-size: 120px; font-weight: 900; letter-spacing: -3px; line-height: 1; }
+  .big .b { color: var(--bot); } .big .h { color: var(--human); }
+  .awards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; width: 100%; }
+  .award { background: var(--card); border: 2px solid var(--line); border-radius: 28px; padding: 32px; text-align: left; }
+  .award .k { font-size: 24px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
+  .award .v { font-size: 52px; font-weight: 800; margin-top: 10px; }
+  .award .n { font-size: 28px; color: var(--ink2); margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="center"><div class="kicker">Who's the Bot?</div><div class="big">Getting ready…</div></div></div>
+<script>
+// Who's the Bot? — a game bundle for the Little Redwood TV host (PLAN.md "Game bundle").
+// host → game: init, players, input, sensor, voice, ai_result
+// game → host: screen, say, state, done, ai, bot_answer
+// Every AI call has a canned fallback: the game keeps working when ok is false.
+
+const WRITE_MS = 45000, VOTE_MS = 30000, REVEAL_MS = 11000, FINAL_MS = 14000, INTRO_MS = 6000;
+const MAX_WRITERS = 10;
+
+const PROMPTS = [
+  "The worst thing to say on a first date at Costco",
+  "A terrible name for a smart fridge",
+  "What your houseplant secretly thinks of you",
+  "The real reason the meeting could have been an email",
+  "A new rule for this living room, effective immediately",
+  "The worst possible thing to hear from your Uber driver",
+  "What the TV does when nobody is watching",
+  "A rejected flavor of LaCroix",
+  "The most suspicious thing to have in your search history",
+  "An unhelpful thing to yell during a fire drill",
+  "What your dog would post on LinkedIn",
+  "The worst theme for a kid's birthday party",
+  "A bad thing to name your Wi-Fi network",
+  "The real reason dinosaurs went extinct",
+  "Something you should never say to a barista",
+  "A terrible slogan for a dentist",
+];
+const CANNED = [
+  "idk lol", "my mom", "honestly same", "pizza", "this is a trap", "bold of you to ask", "no comment",
+  "ask my therapist", "wifi password is password", "tuesday", "nap time", "ugh fine", "the cat did it",
+  "new phone who dis", "absolutely not", "taxes probably", "my bad",
+];
+const BOT_NAMES = ["Sam", "Jordan", "Riley", "Casey", "Alex", "Morgan", "Jamie", "Quinn", "Avery", "Reese"];
+
+// ---------- state ----------
+let players = new Map();                 // id -> {id, name, connected}
+let joinOrder = [];                      // ids, first join first
+const score = new Map();                 // id -> points (humans and bots)
+const funnyTotal = new Map(), huntTotal = new Map(), taggedTotal = new Map();
+const history = new Map();               // human id -> their answers (for imitation)
+const humanTimes = [];                   // ms from round start to submit, all rounds
+const caught = [];                       // bot answers that got caught
+let bots = [];                           // [{id, name, revealed}]
+let plan = [], roundIdx = -1, round = null, phase = "intro", token = 0;
+let botDelta = 0, difficulty = "normal", theme = null, nextPrompt = null;
+const usedPrompts = new Set();
+
+const app = document.getElementById("app");
+const send = (m) => window.parent.postMessage(m, "*");
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const later = (ms, fn) => { const t = token; setTimeout(() => { if (t === token) fn(); }, ms); };
+const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
+const shuffle = (xs) => { const a = xs.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const active = () => joinOrder.map((id) => players.get(id)).filter((p) => p && p.connected);
+const isBot = (id) => id.startsWith("bot_");
+const nameOf = (id) => isBot(id) ? (bots.find((b) => b.id === id)?.name ?? "Bot") : (players.get(id)?.name ?? "Someone");
+const add = (m, id, n) => m.set(id, (m.get(id) ?? 0) + n);
+const and = (xs) => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs.at(-1);
+const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+// ---------- AI (bot_answer / ai) with fallbacks ----------
+const pending = new Map();
+let reqSeq = 0;
+function ask(msg, ms = 26000) {
+  const id = "r" + (++reqSeq);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { pending.delete(id); resolve(null); }, ms);
+    pending.set(id, (res) => { clearTimeout(timer); pending.delete(id); resolve(res && res.ok ? res : null); });
+    send({ ...msg, id });
+  });
+}
+function cannedAnswer(existing) {
+  const seen = new Set(existing.map(norm));
+  const opts = CANNED.filter((c) => !seen.has(norm(c)));
+  return pick(opts.length ? opts : CANNED);
+}
+
+// ---------- scores & state ----------
+function teamTotals() {
+  let h = 0, b = 0;
+  for (const [id, v] of score) (isBot(id) ? (b += v) : (h += v));
+  return { h, b };
+}
+function scoreboard() {
+  const out = {};
+  for (const p of active()) out[p.name] = score.get(p.id) ?? 0;
+  for (const bt of bots) if (bt.revealed) out[bt.name + " (bot)"] = score.get(bt.id) ?? 0;
+  return out;
+}
+function postState(summary) { send({ type: "state", summary, phase, scores: scoreboard() }); }
+
+// ---------- rounds ----------
+function buildPlan() {
+  const n = active().length;
+  plan = n >= 2 ? [{ mode: "bot" }, { mode: "bot" }, { mode: "human" }] : [{ mode: "bot" }, { mode: "bot" }, { mode: "bot" }];
+}
+function freshPrompt() {
+  if (nextPrompt) { const p = nextPrompt; nextPrompt = null; usedPrompts.add(p); return p; }
+  const left = PROMPTS.filter((p) => !usedPrompts.has(p));
+  const p = pick(left.length ? left : PROMPTS);
+  usedPrompts.add(p);
+  return p;
+}
+function ensureBots(n) {
+  const roomNames = new Set(active().map((p) => norm(p.name)));
+  while (bots.length < n) {
+    const name = BOT_NAMES.find((x) => !roomNames.has(norm(x)) && !bots.some((b) => b.name === x)) ?? "Bot " + (bots.length + 1);
+    bots.push({ id: "bot_" + (bots.length + 1), name, revealed: false });
+  }
+}
+
+function startRound(i) {
+  token++; roundIdx = i; phase = "write";
+  const mode = plan[i].mode;
+  const humans = active();
+  let writers, botN;
+  if (mode === "bot") {
+    writers = humans.slice(0, MAX_WRITERS).map((p) => p.id);
+    botN = Math.max(1, Math.min(3, (writers.length >= 5 ? 1 : 2) + botDelta));
+  } else {
+    writers = shuffle(humans).slice(0, humans.length >= 8 ? 2 : 1).map((p) => p.id);
+    botN = Math.max(3, Math.min(6, 4 + botDelta + (writers.length - 1)));
+  }
+  ensureBots(botN);
+  const roundBots = bots.slice(0, botN).map((b) => b.id);
+  round = {
+    mode, prompt: freshPrompt(), writers, bots: roundBots, answers: new Map(), startedAt: Date.now(),
+    deadline: Date.now() + WRITE_MS, cards: [], funny: new Map(), guess: new Map(), aiGuess: null,
+  };
+  for (const p of humans) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+  const intro = mode === "bot"
+    ? `Round ${i + 1}. ${roundBots.length === 1 ? "One of you is a bot." : roundBots.length + " of you are bots."} ${round.prompt}.`
+    : `Final round, and it flips. ${roundBots.length} bots and ${writers.length === 1 ? "one human" : "two humans"} are writing. Everyone else, find the human. ${round.prompt}.`;
+  send({ type: "say", text: intro });
+  postState(`${mode === "bot" ? "Find the bot" : "Find the human"}, round ${i + 1} of ${plan.length}. Prompt: ${round.prompt}. ${writers.length} human writers and ${roundBots.length} hidden bots are answering.`);
+  render();
+  for (const b of roundBots) runBot(b);
+  later(WRITE_MS, endWrite);
+}
+
+function lazyRate() {
+  const all = [...history.values()].flat();
+  return all.length ? all.filter((s) => s.trim().split(/\s+/).length <= 2).length / all.length : 0.2;
+}
+
+async function runBot(botId) {
+  const r = round, t = token;
+  const humanWriters = r.writers.length;
+  // Never answer first: wait for a couple of humans or 55% of the clock.
+  await new Promise((res) => {
+    const tick = () => {
+      if (t !== token) return res();
+      const humansIn = [...r.answers.keys()].filter((id) => !isBot(id)).length;
+      if (humansIn >= Math.min(2, humanWriters) || Date.now() - r.startedAt > WRITE_MS * 0.55) return res();
+      setTimeout(tick, 400);
+    };
+    tick();
+  });
+  if (t !== token) return;
+  const humans = [...r.answers].filter(([id]) => !isBot(id)).map(([, a]) => a.text);
+  const pastHumans = [...history.values()].flat();
+  const imitate = r.mode === "human" ? r.writers.flatMap((id) => history.get(id) ?? []) : undefined;
+  const lr = lazyRate();
+  const roll = Math.random();
+  const effort = difficulty === "easy" ? "joke" : roll < lr ? "lazy" : roll < lr + 0.15 ? "room" : "joke";
+  const res = await ask({
+    type: "bot_answer", prompt: r.prompt,
+    humans: difficulty === "easy" ? [] : humans.concat(pastHumans).slice(-14),
+    imitate: difficulty === "hard" || r.mode === "human" ? (imitate?.length ? imitate : pastHumans.slice(-6)) : undefined,
+    caught: caught.slice(-6), effort, names: active().map((p) => p.name),
+  });
+  if (t !== token || phase !== "write") return;
+  const existing = [...r.answers.values()].map((a) => a.text);
+  let text = res?.data?.text ? String(res.data.text).slice(0, 60) : cannedAnswer(existing);
+  if (existing.some((e) => norm(e) === norm(text))) text = cannedAnswer(existing);
+  // Submit on a human-like clock, never first.
+  const now = Date.now() - r.startedAt;
+  const sample = humanTimes.length ? pick(humanTimes) * (0.85 + Math.random() * 0.3) : WRITE_MS * (0.35 + Math.random() * 0.5);
+  const wait = Math.max(0, Math.min(WRITE_MS - 2500, sample) - now) + Math.random() * 1500;
+  later(wait, () => { if (phase === "write" && !r.answers.has(botId)) submit(botId, text); });
+}
+
+function submit(id, text) {
+  const r = round;
+  r.answers.set(id, { text, at: Date.now() - r.startedAt });
+  if (!isBot(id)) {
+    humanTimes.push(Date.now() - r.startedAt);
+    const h = history.get(id) ?? []; h.push(text); history.set(id, h.slice(-8));
+  }
+  render();
+  const all = r.writers.filter((w) => players.get(w)?.connected).concat(r.bots);
+  if (all.every((w) => r.answers.has(w))) later(1200, endWrite);
+}
+
+function endWrite() {
+  if (phase !== "write") return;
+  token++;
+  const r = round;
+  // Bots that missed the clock still answer, from the canned list.
+  for (const b of r.bots) if (!r.answers.has(b)) r.answers.set(b, { text: cannedAnswer([...r.answers.values()].map((a) => a.text)), at: WRITE_MS });
+  const entries = shuffle([...r.answers]);
+  r.cards = entries.slice(0, 12).map(([author, a], i) => ({ letter: String.fromCharCode(65 + i), author, text: a.text }));
+  if (!r.cards.some((c) => !isBot(c.author)) && r.mode === "human") { // the human never answered
+    send({ type: "say", text: "Our human went quiet. Let's try that again." });
+    return startRound(roundIdx);
+  }
+  phase = "vote"; r.deadline = Date.now() + VOTE_MS;
+  for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+  send({ type: "say", text: r.mode === "bot" ? "Answers are in. Vote for the funniest, then find the bot." : "Answers are in. Detectives, which one is the human?" });
+  postState(`Voting. Answers: ${r.cards.map((c) => c.letter + ") " + c.text).join(" · ")}`);
+  render();
+  if (r.mode === "human") aiDetective();
+  later(VOTE_MS, endVote);
+}
+
+async function aiDetective() {
+  const r = round, t = token;
+  const res = await ask({
+    type: "ai",
+    instruction: "You are the witty host of a party game. Exactly one or two of these short answers were written by a human; the rest by AI players trying to pass as human. Guess the single most likely human answer. Give its letter and a playful one-sentence reason (under 18 words) pointing at a concrete detail of the text.",
+    context: { prompt: r.prompt, answers: r.cards.map((c) => ({ letter: c.letter, text: c.text })) },
+    schema: { type: "object", properties: { letter: { type: "string" }, reason: { type: "string" } }, required: ["letter", "reason"] },
+  }, 20000);
+  if (t !== token || !res?.data) return;
+  const letter = String(res.data.letter ?? "").trim().toUpperCase().slice(0, 1);
+  if (r.cards.some((c) => c.letter === letter)) { r.aiGuess = { letter, reason: String(res.data.reason ?? "").slice(0, 140) }; render(); }
+}
+
+function voters() { const r = round; return active().filter((p) => r.mode === "bot" || !r.writers.includes(p.id)); }
+function cardOf(id) { return round.cards.find((c) => c.author === id); }
+
+function voteInput(id, choice) {
+  const r = round;
+  if (!r.cards.some((c) => c.letter === choice)) return;
+  if (cardOf(id)?.letter === choice) return; // no voting for yourself
+  if (r.mode === "bot" && !r.funny.has(id)) r.funny.set(id, choice);
+  else if (!r.guess.has(id)) r.guess.set(id, choice);
+  else return;
+  send({ type: "screen", to: id, screen: screenFor(id) });
+  render();
+  const done = (p) => r.guess.has(p.id) && (r.mode === "human" || r.funny.has(p.id));
+  if (voters().length && voters().every(done)) later(800, endVote);
+}
+
+function endVote() {
+  if (phase !== "vote") return;
+  token++; phase = "reveal";
+  const r = round;
+  const by = (letter) => r.cards.find((c) => c.letter === letter);
+  r.funnyCount = new Map(); r.guessCount = new Map();
+  for (const [, l] of r.funny) add(r.funnyCount, l, 1);
+  for (const [, l] of r.guess) add(r.guessCount, l, 1);
+  const vs = voters();
+  if (r.mode === "bot") {
+    for (const [l, n] of r.funnyCount) { const c = by(l); if (c) { add(score, c.author, 100 * n); if (!isBot(c.author)) add(funnyTotal, c.author, n); } }
+    for (const [voter, l] of r.guess) {
+      const c = by(l); if (!c) continue;
+      if (isBot(c.author)) { add(score, voter, 200); add(huntTotal, voter, 1); } else add(taggedTotal, c.author, 1);
+    }
+    for (const b of r.bots) {
+      const c = cardOf(b); if (!c) continue;
+      const catchers = [...r.guess.values()].filter((l) => l === c.letter).length;
+      add(score, b, 100 * Math.max(0, vs.length - catchers));
+      if (vs.length && catchers / vs.length >= 0.34) caught.push(c.text);
+    }
+  } else {
+    for (const [voter, l] of r.guess) {
+      const c = by(l); if (!c) continue;
+      if (!isBot(c.author)) { add(score, voter, 200); add(huntTotal, voter, 1); } else add(score, c.author, 100);
+    }
+    for (const w of r.writers) {
+      const c = cardOf(w); if (!c) continue;
+      const found = [...r.guess.values()].filter((l) => l === c.letter).length;
+      add(score, w, 100 * Math.max(0, vs.length - found));
+    }
+  }
+  for (const b of r.bots) { const bt = bots.find((x) => x.id === b); if (bt) bt.revealed = true; }
+  for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+
+  // Staged reveal: votes first, then the flip.
+  r.stage = 0; render();
+  const botCards = r.cards.filter((c) => isBot(c.author));
+  if (r.mode === "bot") {
+    const caughtNames = botCards.filter((c) => (r.guessCount.get(c.letter) ?? 0) === Math.max(0, ...r.guessCount.values()) && (r.guessCount.get(c.letter) ?? 0) > 0);
+    const line = botCards.length === 1
+      ? `The bot was ${botCards[0].letter}, "${botCards[0].text}", by ${nameOf(botCards[0].author)}. ${caughtNames.length ? "You caught it!" : "It fooled you!"}`
+      : `The bots were ${and(botCards.map((c) => c.letter))}. ${caughtNames.length ? "Nice hunting." : "They fooled you."}`;
+    later(2500, () => { r.stage = 1; render(); send({ type: "say", text: line }); });
+    postState(`Reveal. ${line}`);
+  } else {
+    const humanCards = r.cards.filter((c) => !isBot(c.author));
+    const order = shuffle(botCards);
+    order.forEach((c, i) => later(1800 + i * 900, () => { r.flipped = (r.flipped ?? 0) + 1; r.flipOrder = order; render(); }));
+    const found = humanCards.some((c) => (r.guessCount.get(c.letter) ?? 0) === Math.max(0, ...r.guessCount.values()) && (r.guessCount.get(c.letter) ?? 0) > 0);
+    const line = `The human was ${and(humanCards.map((c) => nameOf(c.author)))}, answer ${and(humanCards.map((c) => c.letter))}. ${found ? "The detectives found them!" : "The bots hid them perfectly."}${r.aiGuess ? (humanCards.some((c) => c.letter === r.aiGuess.letter) ? " And so did I." : " I guessed wrong, which never happens.") : ""}`;
+    later(1800 + order.length * 900 + 600, () => { r.stage = 1; render(); send({ type: "say", text: line }); });
+    postState(`Reveal. ${line}`);
+  }
+  later(REVEAL_MS + (r.mode === "human" ? 3000 : 0), () => (roundIdx + 1 < plan.length ? startRound(roundIdx + 1) : finish()));
+}
+
+function finish() {
+  token++; phase = "final";
+  const { h, b } = teamTotals();
+  const top = (m) => { let best = null, v = 0; for (const [id, n] of m) if (players.has(id) && n > v) { best = id; v = n; } return best ? { name: nameOf(best), n: v } : null; };
+  round = { awards: { funny: top(funnyTotal), hunter: top(huntTotal), robotic: top(taggedTotal) }, h, b };
+  const winner = h === b ? "It's a tie between humans and bots!" : h > b ? `Humanity wins, ${h} to ${b}!` : `The bots win, ${b} to ${h}. I'm so proud of them.`;
+  const a = round.awards;
+  const awardsLine = [a.funny && `Funniest human: ${a.funny.name}.`, a.robotic && `Most robotic human: ${a.robotic.name}.`].filter(Boolean).join(" ");
+  send({ type: "say", text: `${winner} ${awardsLine}` });
+  for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+  postState(`Game over. ${winner} ${awardsLine}`);
+  render();
+  later(FINAL_MS, () => send({ type: "done" }));
+}
+
+// ---------- phone screens ----------
+function trunc(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+function screenFor(id) {
+  const r = round;
+  if (phase === "final") return { kind: "info", title: "Game over", body: `You scored ${score.get(id) ?? 0}. Look at the TV.` };
+  if (!r || phase === "intro") return { kind: "info", title: "Who's the Bot?", body: "Get ready…" };
+  const writer = r.writers?.includes(id);
+  if (phase === "write") {
+    if (writer && !r.answers.has(id)) return { kind: "text", prompt: r.prompt, maxLength: 60, placeholder: "Be yourself. Or don't." };
+    if (writer) return { kind: "info", title: "Sent.", body: r.mode === "human" ? "Act natural. They'll be hunting for you." : "Look at the TV." };
+    return { kind: "info", title: r.mode === "human" ? "You're a detective" : "You're a judge this round", body: r.mode === "human" ? "One of the answers is a human. Get ready to find them." : "Vote is coming. Read along on the TV." };
+  }
+  if (phase === "vote") {
+    const own = cardOf(id)?.letter;
+    const items = r.cards.filter((c) => c.letter !== own).map((c) => ({ id: c.letter, label: `${c.letter} · ${trunc(c.text, 34)}` }));
+    if (r.mode === "human" && writer) return { kind: "info", title: "Stay cool.", body: "The detectives are hunting for you." };
+    if (r.mode === "bot" && !r.funny.has(id)) return { kind: "buttons", prompt: "Which one is the funniest?", items };
+    if (!r.guess.has(id)) return { kind: "buttons", prompt: r.mode === "bot" ? "Which one is the bot? 🤖" : "Which one is the human?", items };
+    return { kind: "info", title: "Locked in.", body: "Look at the TV." };
+  }
+  if (phase === "reveal") return { kind: "info", title: "Look at the TV!", body: `You have ${score.get(id) ?? 0} points.` };
+  return { kind: "info", title: "Who's the Bot?", body: "Look at the TV." };
+}
+
+// ---------- TV rendering ----------
+function ring() {
+  const r = round;
+  if (!r || (phase !== "write" && phase !== "vote")) return "";
+  const total = phase === "write" ? WRITE_MS : VOTE_MS;
+  const left = Math.max(0, r.deadline - Date.now());
+  const C = 2 * Math.PI * 40;
+  return `<div class="ring"><svg width="96" height="96"><circle cx="48" cy="48" r="40" fill="none" stroke="#2a3a2e" stroke-width="10"/>
+    <circle id="ringfg" cx="48" cy="48" r="40" fill="none" stroke="${left < 8000 ? "#e4572e" : "#6bbf59"}" stroke-width="10" stroke-linecap="round"
+    stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - left / total)}"/></svg><span id="ringtxt">${Math.ceil(left / 1000)}</span></div>`;
+}
+function header() {
+  const r = round;
+  const { h, b } = teamTotals();
+  const pct = h + b ? Math.round((h / (h + b)) * 100) : 50;
+  const mode = r && r.mode === "human" ? `<div class="mode human">Find the <b>Human</b></div>` : `<div class="mode">Find the <b>Bot</b></div>`;
+  return `<header><div><div class="kicker">Round ${roundIdx + 1} of ${plan.length}</div>${mode}</div>
+    <div class="teams"><span class="h">Humans ${h}</span><div class="bar"><i style="width:${pct}%"></i></div><span class="b">${b} Bots</span></div>${ring()}</header>`;
+}
+function cardHtml(c) {
+  const r = round;
+  const bot = isBot(c.author);
+  const reveal = phase === "reveal";
+  let flipped = false, cls = "";
+  if (reveal && r.mode === "bot" && r.stage >= 1 && bot) { flipped = true; cls = " glitch"; }
+  if (reveal && r.mode === "human") {
+    const n = r.flipped ?? 0;
+    if (bot && (r.flipOrder ?? []).slice(0, n).includes(c)) flipped = true;
+    if (!bot && r.stage >= 1) cls = " human";
+  }
+  const stars = reveal && r.mode === "bot" ? (r.funnyCount.get(c.letter) ?? 0) : 0;
+  const tags = reveal ? (r.guessCount.get(c.letter) ?? 0) : 0;
+  const who = reveal && (r.stage >= 1 || (r.mode === "bot" && !bot)) ? nameOf(c.author) : "";
+  const meta = reveal ? `${stars ? `<span class="stars">★ ${stars}</span>` : ""}${tags ? `<span>${r.mode === "bot" ? "🤖" : "🔎"} ${tags}</span>` : ""}${who ? `<span class="who">${esc(who)}</span>` : ""}` : "";
+  return `<div class="cardw"><div class="card${flipped ? " flipped" : ""}${cls}">
+      <div class="face"><span class="letter">${c.letter}</span><div class="txt">${esc(c.text)}</div><div class="meta">${bot && flipped ? "" : meta}</div></div>
+      <div class="face back"><span class="robot">🤖</span><div class="txt">${esc(c.text)}</div><div class="meta"><span class="who">BOT · ${esc(nameOf(c.author))}</span>${tags && r.mode === "bot" ? `<span>caught by ${tags}</span>` : ""}</div></div>
+    </div></div>`;
+}
+function render() {
+  const r = round;
+  if (phase === "final") {
+    const a = r.awards;
+    const winner = r.h === r.b ? `<span class="h">Humans</span> & <span class="b">Bots</span> tie` : r.h > r.b ? `<span class="h">Humanity</span> wins` : `The <span class="b">Bots</span> win`;
+    const aw = (k, x, unit) => `<div class="award"><div class="k">${k}</div><div class="v">${x ? esc(x.name) : "Nobody"}</div><div class="n">${x ? `${x.n} ${unit}` : ""}</div></div>`;
+    app.innerHTML = `<div class="center"><div class="kicker">Final score · Humans ${r.h} · Bots ${r.b}</div><div class="big">${winner}</div>
+      <div class="awards">${aw("Funniest human", a.funny, "funny votes")}${aw("Best bot hunter", a.hunter, "catches")}${aw("Most robotic human", a.robotic, "times mistaken for a bot")}</div></div>`;
+    return;
+  }
+  if (!r) return;
+  if (phase === "write") {
+    const total = r.writers.length + r.bots.length;
+    const inCount = r.answers.size;
+    app.innerHTML = `${header()}<div class="prompt">${esc(r.prompt)}</div>
+      <div class="sub">${r.mode === "bot" ? "Answer on your phone. Somewhere among you, a bot is answering too." : `${r.writers.length === 1 ? "One human is" : "Two humans are"} hiding among ${r.bots.length} bots. Detectives, get ready.`}</div>
+      <div class="sub">${inCount} of ${total} answers in</div><div class="dots">${Array.from({ length: total }, (_, i) => `<i class="${i < inCount ? "on" : ""}"></i>`).join("")}</div>`;
+    return;
+  }
+  const few = r.cards.length <= 6 ? " n-few" : "";
+  let top = `<div class="prompt" style="font-size:52px">${esc(r.prompt)}</div>`;
+  if (phase === "vote") {
+    const vs = voters();
+    const done = vs.filter((p) => r.guess.has(p.id)).length;
+    top += `<div class="sub">${r.mode === "bot" ? "Vote the funniest, then tag the bot" : "Detectives: which one is the human?"} · ${done} of ${vs.length} voted</div>`;
+    if (r.aiGuess) top += `<div class="aiguess">Little's guess: <b>${r.aiGuess.letter}</b>, ${esc(r.aiGuess.reason)}</div>`;
+  } else if (phase === "reveal") {
+    if (r.mode === "bot") top += `<div class="banner">${r.stage >= 1 ? `The bot${r.bots.length > 1 ? "s were" : " was"} <span class="b">${and(r.cards.filter((c) => isBot(c.author)).map((c) => c.letter))}</span>` : "And the bot was…"}</div>`;
+    else top += `<div class="banner">${r.stage >= 1 ? `The human was <span class="h">${and(r.cards.filter((c) => !isBot(c.author)).map((c) => esc(nameOf(c.author))))}</span>` : "Flipping the bots…"}</div>`;
+    if (r.aiGuess && r.mode === "human") top += `<div class="aiguess">Little guessed <b>${r.aiGuess.letter}</b>: ${esc(r.aiGuess.reason)}</div>`;
+  }
+  app.innerHTML = `${header()}${top}<div class="grid${few}">${r.cards.map(cardHtml).join("")}</div>`;
+}
+setInterval(() => {
+  const r = round;
+  if (!r || (phase !== "write" && phase !== "vote")) return;
+  const total = phase === "write" ? WRITE_MS : VOTE_MS;
+  const left = Math.max(0, r.deadline - Date.now());
+  const fg = document.getElementById("ringfg"), tx = document.getElementById("ringtxt");
+  if (fg) { const C = 2 * Math.PI * 40; fg.setAttribute("stroke-dashoffset", C * (1 - left / total)); fg.setAttribute("stroke", left < 8000 ? "#e4572e" : "#6bbf59"); }
+  if (tx) tx.textContent = Math.ceil(left / 1000);
+}, 250);
+
+// ---------- voice steering ----------
+async function onVoice(text) {
+  const t = String(text ?? "").toLowerCase();
+  if (/\b(skip|next|hurry|reveal|time'?s up|times up)\b/.test(t)) {
+    if (phase === "write") return endWrite();
+    if (phase === "vote") return endVote();
+  }
+  if (/\b(dumb|dumber|easier|obvious)\b/.test(t)) { difficulty = "easy"; send({ type: "say", text: "Fine, I'll make the bots a little more robotic." }); }
+  if (/\b(smart|smarter|harder|sneakier)\b/.test(t)) { difficulty = "hard"; send({ type: "say", text: "Oh, you asked for it. Full disguise mode." }); }
+  if (/\b(add|another|more)\b.*\bbots?\b/.test(t)) { botDelta = Math.min(2, botDelta + 1); send({ type: "say", text: "One more bot next round." }); }
+  if (/\b(fewer|less|remove|one less)\b.*\bbots?\b/.test(t)) { botDelta = Math.max(-1, botDelta - 1); send({ type: "say", text: "Okay, fewer bots next round." }); }
+  const m = t.match(/\babout (.{3,60})$/);
+  if (m) {
+    theme = m[1].replace(/[.?!]+$/, "");
+    send({ type: "say", text: `Next prompt is about ${theme}.` });
+    const res = await ask({
+      type: "ai",
+      instruction: "Write one short, funny, open-ended party-game prompt (under 70 characters) that people answer with a joke. No question about politics or anything mean. Theme given in context.",
+      context: { theme },
+      schema: { type: "object", properties: { prompt: { type: "string" } }, required: ["prompt"] },
+    }, 15000);
+    const p = res?.data?.prompt ? String(res.data.prompt).replace(/["“”]/g, "").slice(0, 90) : null;
+    if (p) nextPrompt = p;
+  }
+}
+
+// ---------- host messages ----------
+function setPlayers(list) {
+  const before = new Set(players.keys());
+  players = new Map((list ?? []).map((p) => [p.id, p]));
+  for (const p of list ?? []) if (!joinOrder.includes(p.id)) joinOrder.push(p.id);
+  for (const p of active()) if (!before.has(p.id)) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+  render();
+}
+window.addEventListener("message", (e) => {
+  const m = e.data;
+  if (!m || typeof m.type !== "string") return;
+  switch (m.type) {
+    case "init":
+      setPlayers(m.players);
+      buildPlan();
+      phase = "intro";
+      for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+      app.innerHTML = `<div class="center"><div class="kicker">Who's the Bot?</div><div class="big">Somebody here<br>is <span class="b">not human</span>.</div><div class="sub">Answer on your phone. Vote the funniest. Catch the bot.</div></div>`;
+      send({ type: "say", text: "Welcome to Who's the Bot. Somebody here is not human. Answer on your phone, vote the funniest, and catch the bot." });
+      postState("Intro: Who's the Bot? is starting.");
+      later(INTRO_MS, () => startRound(0));
+      break;
+    case "players":
+      setPlayers(m.players);
+      break;
+    case "input": {
+      const d = m.data ?? {};
+      if (phase === "write" && round?.writers.includes(m.player) && !round.answers.has(m.player)) {
+        const text = String(d.text ?? "").trim().slice(0, 60);
+        if (text) { submit(m.player, text); send({ type: "screen", to: m.player, screen: screenFor(m.player) }); }
+      } else if (phase === "vote" && d.id) voteInput(m.player, String(d.id));
+      break;
+    }
+    case "voice":
+      onVoice(m.text);
+      break;
+    case "ai_result": {
+      const f = pending.get(m.id);
+      if (f) f(m);
+      break;
+    }
+  }
+});
+</script>
+</body>
+</html>

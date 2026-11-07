@@ -104,3 +104,41 @@ body {
   animation: pop 400ms cubic-bezier(.2,1.4,.4,1) both;
 }
 .answer-text { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* Lobby: join card + game tiles on the left */
+.lobby-left { display: flex; flex-direction: column; gap: 28px; min-height: 0; }
+.lobby-left .join { flex: 1; padding: 40px 48px; gap: 44px; }
+.lobby-left .code span { width: 104px; height: 128px; font-size: 88px; }
+.games { padding: 28px 36px; }
+.game-row { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+.game-tile {
+  display: flex; flex-direction: column; gap: 8px; padding: 22px 26px; border-radius: 22px; cursor: pointer;
+  background: var(--bg-2); border: 2px solid var(--line); transition: transform 160ms, border-color 160ms;
+}
+.game-tile b { font-size: 34px; }
+.game-tile span { font-size: 22px; color: var(--ink-2); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.game-tile.focused { border-color: var(--accent); transform: scale(1.03); box-shadow: 0 0 0 6px rgba(228, 87, 46, 0.25); }
+.empty.small { font-size: 26px; padding: 20px 0; }
+
+/* A running game owns the whole canvas; the host keeps a thin strip at the bottom. */
+.stage-game { padding: 0; gap: 0; }
+.game { position: relative; width: 1920px; height: 1080px; }
+.game-frame { position: absolute; inset: 0; width: 1920px; height: 1080px; border: 0; background: var(--bg); }
+.game-strip {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 56px; display: flex; align-items: center; gap: 28px;
+  padding: 0 calc(40px + var(--little-safe-left, 0px)) var(--little-safe-bottom, 0px);
+  background: rgba(11, 15, 12, 0.85); border-top: 1px solid var(--line); font-size: 22px; color: var(--ink-3);
+}
+.game-title { color: var(--ink); font-weight: 700; }
+.game-state { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.game-code { color: var(--accent); font-weight: 800; letter-spacing: 2px; }
+
+/* Writing a game live */
+.authoring { flex: 1; display: flex; flex-direction: column; gap: 32px; justify-content: center; }
+.author-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; font-size: 40px; color: var(--ink-3); }
+.author-steps li::before { content: "○  "; }
+.author-steps li.done { color: var(--leaf); }
+.author-steps li.done::before { content: "✓  "; }
+.author-steps li.now { color: var(--ink); animation: blink 1.4s infinite; }
+.author-steps li.now::before { content: "●  "; color: var(--accent); }
+.author-error { font-size: 36px; color: var(--accent); }
