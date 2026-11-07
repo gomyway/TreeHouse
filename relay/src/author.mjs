@@ -27,6 +27,7 @@ Host → game (listen with window.addEventListener("message", e => { const m = e
 - { type: "input", player: playerId, data }  — a phone's input (shapes below).
 - { type: "sensor", player: playerId, kind: "gyro" | "camera" | "mic", data }  — sensor readings you asked for.
 - { type: "voice", text: string }  — optional: a viewer's spoken instruction relayed by the agent ("skip", "make it harder"). Handle it sensibly or ignore it.
+- { type: "ai_result", id: string, ok: boolean, data?, url?: string, error?: string }  — the answer to one of your "ai" / "ai_image" requests (below).
 Player = { id: string, name: string, connected: boolean }. Players can join mid-game, leave, and come back with the same id: send late joiners the current screen.
 
 Game → host (window.parent.postMessage(msg, "*")):
@@ -36,17 +37,38 @@ Game → host (window.parent.postMessage(msg, "*")):
 - { type: "say", text: string }  — the TV's voice agent says this aloud. Use for announcements: round starts, results, winners. Keep it to one or two short sentences.
 - { type: "state", summary: string, phase: string, scores?: { [playerName]: number } }  — post after every meaningful change. summary is plain English the agent reads to narrate and to answer "who's winning?"; phase is one of meta.phases.
 - { type: "done" }  — the game is over; the host returns to the lobby. Post it a few seconds after showing final results.
+- { type: "ai", id: string, instruction: string, context?: any, schema?: JSONSchema }  — the host runs a language model for you (the Little SDK's app.compose) and answers with ai_result. data is the JSON object matching schema when you give one, otherwise text.
+- { type: "ai_image", id: string, hint: string }  — the host generates an image (app.image) and answers with ai_result; url is the image to show (set it as an <img> src at runtime).
 
-Screen kinds (the phone renders these; nothing else exists):
+# AI players and generated content
+Use "ai" for bots that play alongside the humans, generated prompts, judging or commentary. id is your own correlation id; the host just echoes it. A result takes a few seconds, so ask early (when a round opens, not when it closes) and keep your own timeout of about 15 s. If ok is false, the result never comes, or data has the wrong shape, keep going with fallback content you wrote into tv.html (canned answers, an emoji instead of an image). The game must be fully playable with every AI call failing. The host makes the call, so the game needs no API key. Never reveal a bot's identity on a phone screen unless the game wants it known. Example, a bot answering in the room's style with a canned fallback:
+
+const pending = {}; let aiSeq = 0;
+function ai(instruction, context, schema, fallback, cb) {
+  const id = "ai" + (++aiSeq);
+  const timer = setTimeout(() => { if (pending[id]) { delete pending[id]; cb(fallback); } }, 15000);
+  pending[id] = (m) => { clearTimeout(timer); cb(m.ok && m.data && typeof m.data.answer === "string" && m.data.answer.trim() ? m.data.answer.trim() : fallback); };
+  window.parent.postMessage({ type: "ai", id, instruction, context, schema }, "*");
+}
+// in the message listener: if (m.type === "ai_result" && pending[m.id]) { const f = pending[m.id]; delete pending[m.id]; f(m); }
+// when the round opens (myRound guards against a result landing after the phase moved on):
+const myRound = round;
+ai("You are a human at a party game. Answer the prompt in under 12 words, casual, lowercase, like the example answers. Reply with the answer only.",
+   { prompt: question, examples: lastRoundHumanAnswers },
+   { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] },
+   CANNED[Math.floor(Math.random() * CANNED.length)],
+   (text) => { if (round === myRound) answers.set(BOT_ID, text); });
+
+Screen kinds (the phone renders these; nothing else exists). Every kind also takes deadline?: number (epoch ms, e.g. Date.now() + 45000): the phone shows a big countdown and at zero disables its inputs and shows "Time's up, look at the TV". A text screen then auto-submits what was typed, or sends { kind: "text", text: "", late: true } if nothing was; a buttons screen sends nothing. Phone clocks are within about a second of yours: close the round on your own TV timer and accept answers up to 1.5 s after the deadline.
 - { kind: "info", title: string, body?: string }
 - { kind: "buttons", prompt?: string, items: { id: string, label: string }[] }  → input data { kind: "button", id }
-- { kind: "text", prompt: string, maxLength?: number, placeholder?: string }  → input data { kind: "text", text }
+- { kind: "text", prompt: string, maxLength?: number, placeholder?: string }  → input data { kind: "text", text, late?: true } (the phone shows a live "n/max" counter; default max 140)
 - { kind: "pad", label?: string }  → a touch joystick streaming input data { kind: "pad", x, y } (each -1..1) at ~20 Hz
 - { kind: "custom", html: string }  → your own self-contained HTML in a sandboxed iframe on the phone; it sends input with parent.postMessage({ type: "input", data }, "*"). Use only when the declarative kinds cannot express the interaction.
 Sensors: "gyro" sends orientation/motion readings at hz; "camera" sends a JPEG data URL snapshot (hz 0 = one snapshot); "mic" sends loudness levels. Phones disable a buttons screen after one tap, so send a fresh screen for each new question.
 
 # Rules for tv.html
-- One complete HTML document, fully self-contained: inline <style> and <script> only. No external scripts, stylesheets, fonts, images, CDNs or URLs of any kind; no fetch, XMLHttpRequest, WebSocket, EventSource, import(), localStorage or cookies (the sandbox blocks them). Draw with CSS, inline SVG or canvas; emoji are fine.
+- One complete HTML document, fully self-contained: inline <style> and <script> only. No external scripts, stylesheets, fonts, images, CDNs or URLs of any kind (the one exception: an image url returned in ai_result); no fetch, XMLHttpRequest, WebSocket, EventSource, import(), localStorage or cookies (the sandbox blocks them). Draw with CSS, inline SVG or canvas; emoji are fine.
 - It is shown on a television seen from 3 metres: dark theme, high contrast, body text no smaller than about 4vh, headlines about 10vh or more, size everything in vh/vw, no scrolling, one idea on screen at a time.
 - Before init arrives, show a short "waiting" title. All game logic lives in tv.html; the host does nothing but forward messages.
 - Be robust: ignore unknown message types and malformed input, never assume a player id is known, cope with 1 player, end rounds on a timer as well as when everyone has answered, guard timeouts so a stale one cannot fire after the phase moved on.

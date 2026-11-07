@@ -12,12 +12,23 @@ export interface Player {
 }
 
 // ---- Phone screens (declarative; the shell renders them) ----
+// `deadline` (optional, every kind): epoch ms by the TV's clock. The phone shows a big countdown
+// (its own clock, assumed within ~1 s of the TV's) and at zero disables the inputs and shows
+// "Time's up, look at the TV". A `text` screen then auto-submits what was typed, or sends
+// { kind: "text", text: "", late: true } if nothing was; a `buttons` screen sends nothing.
+// The TV still ends the round on its own timer; allow ~1.5 s grace for auto-submitted answers.
 export type Screen =
-  | { kind: "info"; title: string; body?: string }
-  | { kind: "buttons"; prompt?: string; items: { id: string; label: string }[] }
-  | { kind: "text"; prompt: string; maxLength?: number; placeholder?: string }
-  | { kind: "pad"; label?: string } // touch joystick, streams `input` {kind:"pad", x, y} at ~20 Hz
-  | { kind: "custom"; html: string }; // sandboxed iframe; posts {type:"input", data} back
+  | { kind: "info"; title: string; body?: string; deadline?: number }
+  | { kind: "buttons"; prompt?: string; items: { id: string; label: string }[]; deadline?: number }
+  | { kind: "text"; prompt: string; maxLength?: number; placeholder?: string; deadline?: number } // shows a live "n/max" counter
+  | { kind: "pad"; label?: string; deadline?: number } // touch joystick, streams `input` {kind:"pad", x, y} at ~20 Hz
+  | { kind: "custom"; html: string; deadline?: number }; // sandboxed iframe; posts {type:"input", data} back
+
+// The `data` of a phone `input` frame, by screen kind (custom screens send whatever they like).
+export type ScreenInput =
+  | { kind: "button"; id: string }
+  | { kind: "text"; text: string; late?: true } // late: the deadline passed with nothing typed
+  | { kind: "pad"; x: number; y: number };
 
 export type SensorKind = "gyro" | "camera" | "mic";
 

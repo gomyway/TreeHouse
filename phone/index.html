@@ -23,6 +23,17 @@
     .pad .dot { position: absolute; width: 56px; height: 56px; border-radius: 50%; background: var(--accent); transform: translate(-50%, -50%); left: 50%; top: 50%; }
     iframe { flex: 1; border: 0; border-radius: 14px; background: #fff; min-height: 60vh; }
     video { width: 100%; border-radius: 14px; background: #000; }
+    .countdown { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .countdown b { font-size: 64px; line-height: 1; font-variant-numeric: tabular-nums; }
+    .countdown .bar { width: 100%; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+    .countdown .bar i { display: block; height: 100%; background: var(--accent); transition: width 250ms linear; }
+    .countdown.urgent b, .countdown.over b { color: #ff6b5b; }
+    .countdown.urgent .bar i { background: #ff6b5b; }
+    .timesup { text-align: center; }
+    .count { text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; margin-top: -8px; }
+    .count.full { color: var(--accent); }
+    .timesup ~ button, .timesup ~ textarea { opacity: 0.4; }
+    .dead { opacity: 0.4; pointer-events: none; }
     .toast { position: fixed; left: 16px; right: 16px; bottom: 16px; padding: 12px 16px; border-radius: 12px; background: #2a2724; font-size: 14px; }
     .hidden { display: none; }
   </style>

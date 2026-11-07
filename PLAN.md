@@ -10,7 +10,7 @@ code, like jackbox.tv.
 |---|---|---|
 | TV app | `tv/` (the Little app, moved from the repo root) | Owns all state and game logic. Runs in the TV's browser. Exposes tools so the TV's agent can drive it by voice. |
 | Relay | `relay/` (Node + `ws`) | Assigns room codes, forwards frames between the TV socket and the phone sockets, serves the phone shell as static files. No logic. |
-| Phone shell | `phone/` (Vite, vanilla or React) | `https://<relay>/` : enter code, then render whatever **screen** the TV sends and stream whatever **sensors** the TV asks for. |
+| Phone shell | `phone/` (Vite, vanilla or React) | `https://<relay>/` : enter code, then render whatever **screen** the TV sends and stream whatever **sensors** the TV asks for. Phones only ever display what the TV sends, so hidden roles (e.g. which player is a bot) never reach a phone unless a bundle puts them in a screen. |
 | Protocol | `shared/protocol.ts` | The message envelopes, imported by all three. |
 
 ## Join flow
@@ -32,10 +32,15 @@ code, like jackbox.tv.
 The phone shell renders JSON the TV sends, so new phone UIs never need a phone deploy:
 
 - `{ kind: "buttons", items: [{ id, label }] }`
-- `{ kind: "text", prompt, maxLength }`
+- `{ kind: "text", prompt, maxLength }` (the phone shows a live "n/max" counter)
 - `{ kind: "pad" }` (touch joystick / drag area, streams `input` at ~20 Hz)
 - `{ kind: "info", title, body }`
 - `{ kind: "custom", html }` for anything generated on the fly (sandboxed iframe, postMessage bridge)
+
+Every kind takes an optional `deadline` (epoch ms). The phone shows a big countdown by its own clock
+(assumed within ~1 s of the TV's) and at zero disables the inputs and shows "Time's up, look at the TV":
+a `text` screen auto-submits what was typed, or sends `{ kind: "text", text: "", late: true }` if nothing
+was; a `buttons` screen sends nothing. The TV still closes the round on its own timer (allow ~1.5 s grace).
 
 That last one is what makes "games authored live by an agent" possible later with zero phone work.
 
@@ -122,12 +127,23 @@ TV side, through the Little SDK capabilities declared in the manifest:
   - `{ type: "players", players: Player[] }` on join / leave
   - `{ type: "input", player, data }` and `{ type: "sensor", player, kind, data }` as they arrive
   - `{ type: "voice", text }` when the agent relays a viewer instruction to the game (optional)
+  - `{ type: "ai_result", id, ok, data?, url?, error? }` answering an `ai` / `ai_image` request (below)
 
   game → host
   - `{ type: "screen", to, screen }`, `{ type: "ask", to, kind, on, hz }`, `{ type: "play", to, text|url }` (forwarded to the relay as-is)
   - `{ type: "say", text }` (the host asks the agent to speak it)
   - `{ type: "state", summary: string, phase: string, scores?: Record<name, number> }` (the host renders it as `data-little` readouts so the agent can narrate and answer questions)
   - `{ type: "done" }` (back to lobby)
+  - `{ type: "ai", id, instruction, context?, schema? }`: the host runs it on the Little SDK's
+    `app.compose` and answers `ai_result` with `data` (the JSON matching `schema` when one is given,
+    otherwise text)
+  - `{ type: "ai_image", id, hint }`: the host runs `app.image` and answers `ai_result` with `url`
 
-- The phone side needs nothing new: bundles use the declarative screens, and `custom` html for
-  anything special.
+  AI calls: `id` is the game's own correlation id (the host echoes it, nothing more). A result can
+  take a few seconds, so ask early (e.g. when a round opens) and keep a timeout of your own. When `ok`
+  is false (or no answer comes) the game must keep working on fallback content (canned answers, an
+  emoji instead of an image). Because the host makes the call, bots and AI players need no API key of
+  their own, and nothing secret is in the bundle.
+
+- The phone side needs nothing new: bundles use the declarative screens (with an optional `deadline`),
+  and `custom` html for anything special.

@@ -55,6 +55,7 @@ pnpm install
 cp .dev.vars.example .dev.vars     # AUTHOR_FAKE=1: /author returns the sample, no key needed
 pnpm dev                           # wrangler dev on :8787; R2 is simulated under .wrangler/
 pnpm test                          # test/e2e.mjs (relay) then test/author.mjs (games + author)
+node test/phone.mjs                # phone shell deadline helpers, no browser, no wrangler
 ```
 
 `test/author.mjs` starts its own `wrangler dev --var AUTHOR_FAKE:1` with local state in a temp dir.

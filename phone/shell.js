@@ -1,15 +1,19 @@
 // Phone shell: joins a room by code, renders the screens the TV sends, streams the sensors the TV asks for.
 // No game logic here. Protocol: ../shared/protocol.ts
+// The pure helpers (remaining, secondsLabel, expiryInput) are exported for relay/test/phone.mjs,
+// which imports this file under Node; everything touching the DOM is skipped there.
+const inBrowser = typeof document !== "undefined";
 const $ = (id) => document.getElementById(id);
-const main = $("main");
-const qs = new URLSearchParams(location.search);
-const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const main = inBrowser ? $("main") : null;
+const qs = new URLSearchParams(inBrowser ? location.search : "");
+const wsBase = inBrowser ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host : "";
 
 let ws = null, code = null, player = null, retry = 0, closedByTv = false;
 const sensors = { gyro: null, camera: null, mic: null }; // active stop() functions
 
 // ---------- join ----------
 function renderJoin(msg) {
+  stopPad(); stopClock();
   const savedName = localStorage.getItem("lr.name") ?? "";
   main.innerHTML = `
     <h1>Join the TV</h1>
@@ -70,27 +74,71 @@ function setTv(status) { $("hdr-tv").textContent = status === "connected" ? "●
 
 // ---------- screens ----------
 function renderScreen(s) {
-  stopPad();
+  stopPad(); stopClock();
   switch (s.kind) {
     case "info": main.innerHTML = `<h1>${esc(s.title)}</h1>${s.body ? `<p>${esc(s.body)}</p>` : ""}`; break;
     case "buttons":
       main.innerHTML = `${s.prompt ? `<h1>${esc(s.prompt)}</h1>` : ""}${s.items.map((b) => `<button data-id="${esc(b.id)}">${esc(b.label)}</button>`).join("")}`;
       main.querySelectorAll("button").forEach((b) => (b.onclick = () => { input({ kind: "button", id: b.dataset.id }); b.disabled = true; }));
       break;
-    case "text":
-      main.innerHTML = `<h1>${esc(s.prompt)}</h1><textarea id="t" rows="3" maxlength="${s.maxLength ?? 140}" placeholder="${esc(s.placeholder ?? "")}"></textarea><button id="send">Send</button>`;
-      $("send").onclick = () => { const v = $("t").value.trim(); if (!v) return; input({ kind: "text", text: v }); renderScreen({ kind: "info", title: "Sent.", body: "Look at the TV." }); };
-      $("t").focus();
+    case "text": {
+      const max = textMax(s);
+      main.innerHTML = `<h1>${esc(s.prompt)}</h1><textarea id="t" rows="3" maxlength="${max}" placeholder="${esc(s.placeholder ?? "")}"></textarea><p class="count" id="count">0/${max}</p><button id="send">Send</button>`;
+      const t = $("t"), count = $("count");
+      t.oninput = () => { count.textContent = `${t.value.length}/${max}`; count.classList.toggle("full", t.value.length >= max); };
+      $("send").onclick = () => { const v = t.value.trim().slice(0, max); if (!v) return; input({ kind: "text", text: v }); renderScreen({ kind: "info", title: "Sent.", body: "Look at the TV." }); };
+      t.focus();
       break;
+    }
     case "pad": main.innerHTML = `<div class="pad" id="pad"><span>${esc(s.label ?? "drag")}</span><div class="dot" id="dot"></div></div>`; startPad(); break;
     case "custom": main.innerHTML = ""; const fr = document.createElement("iframe"); fr.sandbox = "allow-scripts"; fr.srcdoc = s.html; main.appendChild(fr); break;
     default: main.innerHTML = `<p>Unknown screen: ${esc(s.kind)}</p>`;
   }
+  if (Number.isFinite(s.deadline)) startClock(s);
+}
+
+// ---------- deadlines (screen.deadline is epoch ms; the phone's clock is assumed within ~1 s of the TV's) ----------
+export const remaining = (deadline, now) => Math.max(0, deadline - now); // ms left, never negative
+export const secondsLabel = (ms) => String(Math.ceil(ms / 1000)); // 4001..5000 ms shows "5", 0 shows "0"
+const textMax = (s) => (Number.isInteger(s.maxLength) && s.maxLength > 0 ? s.maxLength : 140);
+// What a screen sends by itself when its deadline passes: text auto-submits, everything else sends nothing.
+export function expiryInput(s, typed) {
+  if (s?.kind !== "text") return null;
+  const v = String(typed ?? "").trim().slice(0, textMax(s));
+  return v ? { kind: "text", text: v } : { kind: "text", text: "", late: true };
+}
+
+let clock = null;
+function stopClock() { clearInterval(clock); clock = null; }
+function startClock(s) {
+  const total = Math.max(1, s.deadline - Date.now());
+  const el = document.createElement("div"); el.className = "countdown";
+  el.innerHTML = `<b></b><div class="bar"><i></i></div>`;
+  main.prepend(el);
+  const num = el.querySelector("b"), bar = el.querySelector("i");
+  const tick = () => {
+    const ms = remaining(s.deadline, Date.now());
+    num.textContent = secondsLabel(ms);
+    bar.style.width = `${(100 * ms) / total}%`;
+    el.classList.toggle("urgent", ms <= 5000);
+    if (ms === 0) { stopClock(); expire(s); }
+  };
+  tick(); if (!el.classList.contains("over")) clock = setInterval(tick, 250); // already expired: no interval
+}
+function expire(s) {
+  main.querySelector(".countdown")?.classList.add("over");
+  const frame = expiryInput(s, $("t")?.value);
+  if (frame) input(frame);
+  stopPad();
+  main.querySelectorAll("button[data-id], #t, #send").forEach((e) => (e.disabled = true));
+  main.querySelectorAll(".pad, iframe").forEach((e) => e.classList.add("dead"));
+  const msg = document.createElement("h1"); msg.className = "timesup"; msg.textContent = "Time's up, look at the TV.";
+  main.querySelector(".countdown")?.after(msg);
 }
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
 // custom screens post {type:"input", data} to the parent; we forward state to them
-window.addEventListener("message", (e) => { const d = e.data; if (d && d.type === "input") input(d.data); });
+if (inBrowser) window.addEventListener("message", (e) => { const d = e.data; if (d && d.type === "input") input(d.data); });
 function forwardToCustom(f) { const fr = main.querySelector("iframe"); if (fr) fr.contentWindow.postMessage(f, "*"); }
 
 // ---------- pad (touch joystick, ~20 Hz) ----------
@@ -156,5 +204,7 @@ function play(f) {
 
 let toastTimer; function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.remove("hidden"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add("hidden"), 2500); }
 
-renderJoin();
-if (qs.get("c") && localStorage.getItem("lr.name")) connect(qs.get("c").toUpperCase(), localStorage.getItem("lr.name"));
+if (inBrowser) {
+  renderJoin();
+  if (qs.get("c") && localStorage.getItem("lr.name")) connect(qs.get("c").toUpperCase(), localStorage.getItem("lr.name"));
+}
