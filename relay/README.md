@@ -64,7 +64,7 @@ node test/phone.mjs                # phone shell deadline helpers, no browser, n
 
 | Name | Where | Meaning |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | `pnpm exec wrangler secret put ANTHROPIC_API_KEY`; locally in `.dev.vars` (gitignored) | Key for live authoring |
+| `FIREWORKS_API_KEY` | `pnpm exec wrangler secret put FIREWORKS_API_KEY`; locally in `.dev.vars` (gitignored) | Key for live authoring |
 | `AUTHOR_MODEL` | var | Model id, default `claude-opus-5-5` |
 | `AUTHOR_FAKE` | var (`.dev.vars`, or `--var AUTHOR_FAKE:1`) | Skip the API; store the sample bundle under a new id (after 300 ms) |
 
@@ -76,7 +76,7 @@ opts into server-side refusal fallback (`fallbacks: "default"`); a refusal that 
 
 ```sh
 pnpm exec wrangler r2 bucket create little-redwood-games   # once
-pnpm exec wrangler secret put ANTHROPIC_API_KEY            # once
+pnpm exec wrangler secret put FIREWORKS_API_KEY            # once
 pnpm exec wrangler deploy
 ```
 
@@ -128,3 +128,53 @@ checks (200 `{ id, meta }`, 403 for a wrong token, 400 for a bad bundle). The ro
 `PUBLISH_TOKEN=… node scripts/publish-games.mjs --url http://127.0.0.1:8787`.
 `test/games.mjs` (in `pnpm test`) runs its own `wrangler dev` with a test token and covers the listing order,
 the PUT route and the script's `--url` path.
+
+## Acks and offline taps
+
+A phone `input` may carry a numeric `seq`. After forwarding it to the TV, the relay replies to that
+phone with `{ type: "ack", seq, delivered: true }`; when no TV socket is attached (the TV grace window)
+it replies `{ type: "ack", seq, delivered: false }` and the input is dropped. Inputs without `seq` and
+all `sensor` frames are never acked. The TV gets `seq` inside the input frame and can ignore it.
+
+The phone shell numbers every discrete input (taps, text, custom screens, the deadline auto-submit)
+and keeps it until its ack arrives: an input tapped while offline is queued, and one sent into a
+half-open socket is resent, in order, when the next socket opens (at most 20, none older than 30 s).
+The pad's 20 Hz stream and sensor frames are never queued. The heartbeat ping now expects a pong
+within 8 s (4 s when the page becomes visible again); without one the socket is closed and a new one
+opened at once.
+
+On screen: the tapped button gets an accent ring and the others lock; a check mark appears on the ack.
+"Reconnecting, your answer is queued" shows when the tap happened offline, "TV is away" on
+`delivered: false`, and "No answer from the TV yet" after 6 s with no ack, which unlocks the buttons.
+
+So the TV can receive the same answer more than once: a resend after a reconnect repeats a `seq`, and
+a re-tap after the 6 s timeout sends a new `seq` for the same answer. Games must treat inputs as
+idempotent per player and round (last answer wins, or first answer sticks), which the game design
+already requires.
+
+## Fireworks (authoring model)
+
+`POST /author` now calls a coding model on Fireworks AI, not the Claude API. This supersedes the
+`FIREWORKS_API_KEY` rows above (table and deploy steps): that secret is no longer read, and you can
+delete it with `pnpm exec wrangler secret delete FIREWORKS_API_KEY`.
+
+The call is a plain `fetch` to Fireworks' OpenAI-compatible endpoint
+`POST https://api.fireworks.ai/inference/v1/chat/completions` (no SDK). The bundle contract, parsing,
+validation, single retry and 90 s per-attempt deadline are unchanged.
+
+| Setting | How | Default |
+|---|---|---|
+| `FIREWORKS_API_KEY` (secret) | `pnpm exec wrangler secret put FIREWORKS_API_KEY`; locally in `.dev.vars` | none: without it (and without `AUTHOR_FAKE`) `POST /author` returns 500 |
+| `AUTHOR_MODEL` | `[vars]` in wrangler.toml, `--var`, or `.dev.vars` | `accounts/fireworks/models/qwen3-coder-480b-a35b-instruct` |
+| `AUTHOR_MAX_TOKENS` | same | `16000` (a reply cut off at this limit counts as a failed attempt) |
+| `AUTHOR_TEMPERATURE` | same | `0.4` |
+
+Picking a model: list what your account can call with
+`curl https://api.fireworks.ai/inference/v1/models -H "Authorization: Bearer $FIREWORKS_API_KEY"` and
+use the full `accounts/fireworks/models/<name>` id. Pick a non-thinking instruct model that is
+strong at code and fast enough to write a few hundred lines of HTML inside 90 s. Alternatives to
+the default (verify the ids in that list): Kimi K2 instruct
+(`accounts/fireworks/models/kimi-k2-instruct-0905`) and DeepSeek V3.x
+(`accounts/fireworks/models/deepseek-v3p1`). Upstream HTTP errors come back as 502 (or a job
+`error`) carrying Fireworks' error body. Fireworks answers 404 "Model not found, inaccessible,
+and/or not deployed" for a bad key as well as for a bad model id, so check the key first.

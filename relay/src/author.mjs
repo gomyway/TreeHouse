@@ -1,5 +1,6 @@
-// Authoring manager. Claude writes a game bundle (meta.json + tv.html) against the contract in
+// Authoring manager. A coding model on Fireworks AI writes a game bundle (meta.json + tv.html) against the contract in
 // ../../PLAN.md "Game bundle"; we validate it, retry once with the errors fed back, and store it in R2.
+// Plain fetch to Fireworks' OpenAI-compatible chat completions API (no SDK); key in FIREWORKS_API_KEY.
 // AUTHOR_FAKE skips the API and stores the sample (after a short delay, so the job states show).
 //   POST /author { prompt, context? }        → 202 { jobId, status: "queued" }; the AuthorJob Durable
 //                                              Object runs it and writes jobs/<jobId>.json to R2.
@@ -7,11 +8,16 @@
 //   POST /author?wait=1 { prompt, context? } → runs inline: { id, meta } or 502 (tests, curl).
 // Why a Durable Object alarm and not ctx.waitUntil: waitUntil is cut off 30 s after the response
 // is sent, and one attempt may take 90 s. An alarm handler gets 15 minutes of wall clock.
-import Anthropic from "@anthropic-ai/sdk";
 import { SAMPLE, CORS, cjson, newId, putGame } from "./games.mjs";
 
-const DEFAULT_MODEL = "claude-opus-5-5";
-const FALLBACK_MODELS = new Set(["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5"]);
+const FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
+// Override with env AUTHOR_MODEL. Alternatives (verify the exact id with
+// `curl https://api.fireworks.ai/inference/v1/models -H "Authorization: Bearer $FIREWORKS_API_KEY"`):
+//   accounts/fireworks/models/kimi-k2-instruct-0905   (Kimi K2 instruct)
+//   accounts/fireworks/models/deepseek-v3p1           (DeepSeek V3.1; also deepseek-v3p2 if listed)
+const DEFAULT_MODEL = "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct";
+const DEFAULT_MAX_TOKENS = 16000;
+const DEFAULT_TEMPERATURE = 0.4;
 const DEADLINE_MS = 90_000; // per attempt; with the one retry a job can run about 3 minutes
 const FAKE_DELAY_MS = 300;
 const JOB_RE = /^[a-z0-9]{12}$/;
@@ -149,27 +155,32 @@ export function validateBundle(text) {
 // back; a timed-out first attempt retries with the plain request.
 async function generate(env, prompt, context, onAttempt) {
   const model = env.AUTHOR_MODEL || DEFAULT_MODEL;
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: DEADLINE_MS });
+  const num = (v, d) => { const n = Number(v); return v !== undefined && v !== "" && Number.isFinite(n) ? n : d; };
+  const maxTokens = Math.trunc(num(env.AUTHOR_MAX_TOKENS, DEFAULT_MAX_TOKENS));
+  const temperature = num(env.AUTHOR_TEMPERATURE, DEFAULT_TEMPERATURE);
   const ask = `Write a game bundle for this request:\n\n${prompt}` +
     (context && Object.keys(context).length ? `\n\nContext from the TV (JSON):\n${JSON.stringify(context).slice(0, 4000)}` : "");
   let userText = ask, lastErrors = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     await onAttempt(attempt);
-    const params = {
+    const body = {
       model,
-      max_tokens: 32000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium" },
-      system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: userText }],
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: userText }],
+      max_tokens: maxTokens,
+      temperature,
     };
-    // Server-side refusal fallback where the model supports it (Claude API).
-    if (FALLBACK_MODELS.has(model)) { params.betas = ["server-side-fallback-2026-07-01"]; params.fallbacks = "default"; }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), DEADLINE_MS);
-    let msg;
+    let data;
     try {
-      msg = await client.beta.messages.stream(params, { signal: ctrl.signal }).finalMessage();
+      const res = await fetch(FIREWORKS_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${env.FIREWORKS_API_KEY}` },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error(`Fireworks API ${res.status}: ${(await res.text()).slice(0, 2000)}`);
+      data = await res.json();
     } catch (e) {
       if (!ctrl.signal.aborted) throw e;
       lastErrors = [`attempt ${attempt} timed out after ${DEADLINE_MS / 1000} s`];
@@ -178,12 +189,15 @@ async function generate(env, prompt, context, onAttempt) {
     } finally {
       clearTimeout(timer);
     }
-    if (msg.stop_reason === "refusal") throw new Error(`model refused: ${msg.stop_details?.explanation ?? msg.stop_details?.category ?? "no details"}`);
-    const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    if (msg.stop_reason === "max_tokens") lastErrors = ["the reply was cut off at max_tokens; make tv.html shorter"];
+    const choice = data?.choices?.[0];
+    const content = choice?.message?.content;
+    const text = typeof content === "string" ? content
+      : Array.isArray(content) ? content.map((p) => (typeof p === "string" ? p : p?.text ?? "")).join("\n") : "";
+    if (choice?.finish_reason === "length") lastErrors = ["the reply was cut off at max_tokens; make tv.html shorter"];
+    else if (!text) lastErrors = [`the model returned no text (finish_reason ${choice?.finish_reason ?? "missing"})`];
     else {
       const v = validateBundle(text);
-      if (v.ok) return { ...v, model: msg.model };
+      if (v.ok) return { ...v, model: data.model ?? model };
       lastErrors = v.errors;
     }
     // Retry once as a fresh single-turn request carrying the failed attempt and its errors.
@@ -264,7 +278,7 @@ export async function handleAuthor(req, env, url) {
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim().slice(0, MAX_PROMPT_CHARS) : "";
   if (!prompt) return cjson({ error: "prompt is required" }, 400);
   const context = body.context && typeof body.context === "object" ? body.context : undefined;
-  if (!env.AUTHOR_FAKE && !env.ANTHROPIC_API_KEY) return cjson({ error: "ANTHROPIC_API_KEY is not set (wrangler secret put ANTHROPIC_API_KEY, or .dev.vars locally)" }, 500);
+  if (!env.AUTHOR_FAKE && !env.FIREWORKS_API_KEY) return cjson({ error: "FIREWORKS_API_KEY is not set (wrangler secret put FIREWORKS_API_KEY, or .dev.vars locally)" }, 500);
 
   if (url.searchParams.has("wait") && url.searchParams.get("wait") !== "0") { // synchronous
     try { return cjson(await author(env, prompt, context)); } catch (e) { return cjson({ error: String(e?.message ?? e) }, 502); }

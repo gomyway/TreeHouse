@@ -1,6 +1,8 @@
 # Copy to .dev.vars for `wrangler dev` (never commit .dev.vars).
-# AUTHOR_FAKE=1 makes POST /author return the sample bundle without calling the Claude API.
+# AUTHOR_FAKE=1 makes POST /author return the sample bundle without calling the model API.
 AUTHOR_FAKE=1
-# For live authoring, delete AUTHOR_FAKE and set your key:
-# ANTHROPIC_API_KEY=sk-ant-...
-# AUTHOR_MODEL=claude-opus-5-5
+# For live authoring (Fireworks AI), delete AUTHOR_FAKE and set your key:
+# FIREWORKS_API_KEY=fw_...
+# AUTHOR_MODEL=accounts/fireworks/models/qwen3-coder-480b-a35b-instruct
+# AUTHOR_MAX_TOKENS=16000
+# AUTHOR_TEMPERATURE=0.4
