@@ -1,6 +1,7 @@
 import type { LittleApp } from "@kabletv/little-sdk";
 import type { Player, PlayerId, RoomTransport, Screen, SensorKind } from "../room/model";
 import { botAnswer } from "./bots";
+import { createMotionSession, MOTION_ACTION_IDS, MOTION_CONTROL_IDS, MOTION_HELD_IDS } from "@kabletv/little-motion";
 
 // Bridges one game bundle (a sandboxed iframe) to the room and to the Little host.
 // Contract: PLAN.md "Game bundle", plus the AI-player extension:
@@ -10,6 +11,11 @@ import { botAnswer } from "./bots";
 //                say {text} · state {summary, phase, scores?} · done
 //                ai {id, instruction, context?, schema?} · ai_image {id, hint, instruction?}
 //                bot_answer {id, prompt, humans, imitate?, caught?, effort?, names?} (see ./bots.ts)
+//                motion_start {actions?, held?, controls?, maxPlayers?} · motion_stop
+//   host → game  motion {actions:[{id, side?, slot}], held:[{id, side?, slot}], controls:[{id, value, slot}]}
+//                motion_status {state, reason?, slots:[{slot, state}]} · said {id, ok, interrupted?}
+// Camera games are capped at 2 players (tested on the TV); request only what a phase needs,
+// since session status is aggregate across every requested semantic.
 
 export interface GameState {
   summary: string;
@@ -39,6 +45,51 @@ export function createGameHost(opts: {
 }): GameHost {
   const { frame, app } = opts;
   let disposed = false;
+  let motion: { close(): void } | null = null;
+  const stopMotion = () => {
+    motion?.close();
+    motion = null;
+  };
+  const startMotion = (m: Record<string, unknown>) => {
+    stopMotion();
+    if (!app.can("sense.motion")) {
+      post({ type: "motion_status", state: "unavailable", reason: "not-granted", slots: [] });
+      return;
+    }
+    const pick = <T extends string>(v: unknown, allowed: readonly T[]) =>
+      (Array.isArray(v) ? v : []).map(String).filter((x): x is T => (allowed as readonly string[]).includes(x));
+    const max: 1 | 2 = Number(m.maxPlayers) === 1 ? 1 : 2;
+    const session = createMotionSession(app, {
+      actions: pick(m.actions, MOTION_ACTION_IDS),
+      held: pick(m.held, MOTION_HELD_IDS),
+      controls: pick(m.controls, MOTION_CONTROL_IDS).filter((c) => c !== "right-hand-cursor" && c !== "left-hand-cursor"),
+      participants: { minimum: 1, maximum: max, assignment: { mode: "spatial" } },
+    });
+    let last = "";
+    const offStatus = session.onStatus((st) => {
+      const slots = (st.participants ?? []).map((p) => ({ slot: p.slot, state: p.state }));
+      const key = `${st.state}|${st.reason ?? ""}|${slots.map((x) => x.state).join(",")}`;
+      if (key === last) return; // status can arrive at the evidence rate; forward changes only
+      last = key;
+      post({ type: "motion_status", state: st.state, reason: st.reason, slots });
+    });
+    const offResult = session.onResult((r) => {
+      const slotOf = (x: unknown) => (x as { playerSlot?: number }).playerSlot ?? 0;
+      const actions = r.actions.filter((a) => a.phase === "confirmed").map((a) => ({ id: a.actionId, side: a.side, slot: slotOf(a) }));
+      const held = r.held.filter((h) => h.phase === "active").map((h) => ({ id: h.actionId, side: h.side, slot: slotOf(h) }));
+      const controls = r.controls
+        .filter((c) => c.state === "active" && typeof c.value === "number")
+        .map((c) => ({ id: c.id, value: c.value as number, slot: slotOf(c) }));
+      if (actions.length || held.length || controls.length) post({ type: "motion", actions, held, controls });
+    });
+    motion = {
+      close() {
+        offStatus();
+        offResult();
+        session.close();
+      },
+    };
+  };
   const post = (msg: unknown) => {
     if (!disposed) frame.contentWindow?.postMessage(msg, "*");
   };
@@ -87,8 +138,24 @@ export function createGameHost(opts: {
       case "play":
         if (isTarget(m.to)) t?.play(m.to, typeof m.text === "string" ? m.text : undefined, typeof m.url === "string" ? m.url : undefined);
         break;
-      case "say":
-        if (typeof m.text === "string" && m.text.trim() && app.can("voice.say")) void app.voice.say(m.text.slice(0, 400));
+      case "say": {
+        const text = typeof m.text === "string" ? m.text.trim().slice(0, 400) : "";
+        const done = (ok: boolean, interrupted?: boolean) => m.id != null && post({ type: "said", id: m.id, ok, interrupted });
+        if (!text || !app.can("voice.say")) {
+          done(false);
+          break;
+        }
+        app.voice
+          .say(text, m.interrupt === true ? { interrupt: true } : undefined)
+          .then((r) => done(Boolean(r.ok), r.ok ? r.interrupted : undefined))
+          .catch(() => done(false));
+        break;
+      }
+      case "motion_start":
+        startMotion(m);
+        break;
+      case "motion_stop":
+        stopMotion();
         break;
       case "state":
         opts.onState({
@@ -143,6 +210,7 @@ export function createGameHost(opts: {
     },
     dispose() {
       disposed = true;
+      stopMotion();
       window.removeEventListener("message", onMessage);
     },
   };

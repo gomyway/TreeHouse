@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, initial-scale=1">
+<title>Little Says</title>
+<style>
+  /* 1920x1080 TV canvas, read from across the room. */
+  :root { --bg: #0b0f0c; --card: #172019; --line: #2a3a2e; --ink: #f2efe6; --ink2: #b7c2b4; --ink3: #7d8c7f;
+    --l: #ff7a59; --r: #4cc3ff; --good: #6bbf59; --bad: #e4572e; --gold: #ffc145; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink);
+    font-family: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #app { position: absolute; inset: 0; padding: 56px 80px 96px; display: flex; flex-direction: column; gap: 28px; }
+  .kicker { font-size: 26px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
+  .title { font-size: 44px; font-weight: 800; }
+  .title b { color: var(--gold); }
+  header { display: flex; align-items: center; justify-content: space-between; height: 96px; }
+  .meter { font-size: 28px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+
+  .command { flex: none; text-align: center; padding: 20px 0 10px; }
+  .says { font-size: 56px; font-weight: 800; color: var(--gold); min-height: 68px; letter-spacing: -1px; }
+  .says.trap { visibility: hidden; }
+  .do { font-size: 150px; font-weight: 900; letter-spacing: -4px; line-height: 1; }
+  .window { height: 14px; margin: 26px auto 0; width: 900px; border-radius: 7px; background: var(--line); overflow: hidden; }
+  .window i { display: block; height: 100%; width: 0; background: var(--gold); }
+  .window.run i { animation: fill var(--w) linear forwards; }
+  @keyframes fill { from { width: 100%; } to { width: 0; } }
+
+  .lanes { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; min-height: 0; }
+  .lane { border-radius: 32px; border: 4px solid var(--line); background: var(--card); padding: 32px 40px; display: flex; flex-direction: column; gap: 14px; position: relative; overflow: hidden; }
+  .lane.left { --c: var(--l); } .lane.right { --c: var(--r); }
+  .lane.on { border-color: var(--c); }
+  .lane.off { opacity: .45; }
+  .lane .name { font-size: 64px; font-weight: 900; color: var(--c); }
+  .lane .sub { font-size: 28px; color: var(--ink3); }
+  .lives { font-size: 54px; letter-spacing: 8px; }
+  .pts { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .verdict { position: absolute; right: 36px; top: 28px; font-size: 54px; font-weight: 900; padding: 10px 28px; border-radius: 22px; animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
+  .verdict.good { background: var(--good); color: #0b150b; }
+  .verdict.bad { background: var(--bad); color: #fff; }
+  .lane.out { filter: grayscale(1); opacity: .5; }
+  .lane.out::after { content: "OUT"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 160px; font-weight: 900; color: rgba(228,87,46,.85); transform: rotate(-12deg); }
+  @keyframes pop { from { transform: scale(.4); opacity: 0; } }
+  .lane.hit { animation: flash .5s; }
+  @keyframes flash { 0% { box-shadow: 0 0 0 0 var(--c); } 50% { box-shadow: 0 0 60px 10px var(--c); } 100% { box-shadow: none; } }
+
+  .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px; }
+  .big { font-size: 110px; font-weight: 900; letter-spacing: -3px; line-height: 1.02; }
+  .big .g { color: var(--gold); }
+  .sub2 { font-size: 36px; color: var(--ink2); max-width: 1500px; }
+  .ranking { list-style: none; display: flex; flex-direction: column; gap: 12px; width: 1100px; }
+  .ranking li { display: grid; grid-template-columns: 72px 1fr auto; gap: 20px; align-items: center; padding: 14px 28px; border-radius: 20px;
+    background: var(--card); border: 2px solid var(--line); font-size: 40px; font-weight: 700; text-align: left; }
+  .ranking li.first { border-color: var(--gold); font-size: 50px; }
+  .ranking .rk { color: var(--ink3); text-align: center; }
+</style>
+</head>
+<body>
+<div id="app"><div class="center"><div class="kicker">Little Says</div><div class="big">Getting ready…</div></div></div>
+<script>
+// Little Says: Simon Says called by the TV and judged by its camera (PLAN.md bundle contract +
+// motion_start/motion/motion_status, say {id} → said). Two lanes, left and right, one player each
+// (camera games are capped at 2: that is what tracked reliably on the TV). Only arm-raise and
+// both-arms-raise are requested: they were the moves the TV recognised; "both arms" also counts a
+// left and a right raise within 1.2 s. Everyone else bets on their phone who survives.
+
+const LIVES = 3, COMMANDS_MAX = 14, CLAIM_MS = 20000, CAL_MS = 6000, REST_MS = 1700;
+const MOVES = [
+  { key: "left", text: "left arm up", show: "LEFT ARM" },
+  { key: "right", text: "right arm up", show: "RIGHT ARM" },
+  { key: "both", text: "both arms up", show: "BOTH ARMS" },
+];
+
+let players = new Map(), joinOrder = [];
+let phase = "lanes", token = 0;
+const lanes = [{ id: null, name: "Left", lives: LIVES, pts: 0, out: false }, { id: null, name: "Right", lives: LIVES, pts: 0, out: false }];
+let slotState = ["vacant", "vacant"], motionState = "starting";
+let mirror = false, calSides = [];
+let n = 0, current = null, verdicts = [null, null];
+const bets = new Map();     // phone id -> lane index
+const betPts = new Map();
+
+const app = document.getElementById("app");
+const send = (m) => window.parent.postMessage(m, "*");
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const later = (ms, fn) => { const t = token; setTimeout(() => { if (t === token) fn(); }, ms); };
+const active = () => joinOrder.map((id) => players.get(id)).filter((p) => p && p.connected);
+const laneOf = (id) => lanes.findIndex((l) => l.id === id);
+const playing = () => lanes.map((l, i) => i).filter((i) => !lanes[i].out && (lanes[i].id || slotState[i] === "active"));
+
+// ---------- speech with completion ----------
+const saidWaiters = new Map(); let sayN = 0;
+function say(text, wait = false) {
+  if (!wait) { send({ type: "say", text }); return Promise.resolve(); }
+  const id = "s" + (++sayN);
+  return new Promise((res) => { const t = setTimeout(() => { saidWaiters.delete(id); res(); }, 4500); saidWaiters.set(id, () => { clearTimeout(t); res(); }); send({ type: "say", text, id, interrupt: true }); });
+}
+
+function postState(summary) {
+  const scores = {};
+  for (const l of lanes) if (l.id || l.pts) scores[l.name] = l.pts;
+  send({ type: "state", summary, phase, scores });
+}
+
+// ---------- phone screens ----------
+function screenFor(id) {
+  const li = laneOf(id);
+  if (phase === "lanes") {
+    if (li >= 0) return { kind: "info", title: `You're on the ${li === 0 ? "LEFT" : "RIGHT"}`, body: "Stand in your lane in front of the TV." };
+    const items = [];
+    if (!lanes[0].id) items.push({ id: "lane0", label: "I'll play on the LEFT" });
+    if (!lanes[1].id) items.push({ id: "lane1", label: "I'll play on the RIGHT" });
+    items.push({ id: "watch", label: "I'll watch and bet" });
+    return { kind: "buttons", prompt: "Little Says: two players stand in front of the TV.", items };
+  }
+  if (li >= 0) {
+    const l = lanes[li];
+    if (phase === "final") return { kind: "info", title: l.out ? "You're out!" : "You survived!", body: `${l.pts} points.` };
+    return { kind: "info", title: l.out ? "You're out!" : `${"♥".repeat(l.lives)}  ${l.pts} pts`, body: l.out ? "Cheer from the couch." : "Eyes on the TV, ears on Little." };
+  }
+  if ((phase === "calibrate" || phase === "play") && !bets.has(id) && n < 4) {
+    const items = lanes.map((l, i) => ({ id: "bet" + i, label: `${l.name} survives` }));
+    return { kind: "buttons", prompt: "Place your bet: who lasts longer?", items };
+  }
+  if (phase === "final") return { kind: "info", title: betPts.get(id) ? "Your bet won!" : "Game over", body: "Look at the TV." };
+  return { kind: "info", title: bets.has(id) ? `You bet on ${lanes[bets.get(id)].name}` : "Watching", body: "Look at the TV." };
+}
+const refreshPhones = () => { for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) }); };
+
+// ---------- flow ----------
+function startLanes() {
+  token++; phase = "lanes";
+  send({ type: "motion_start", actions: ["arm-raise", "both-arms-raise"], maxPlayers: 2 });
+  refreshPhones();
+  say("Little Says! Two players, grab a lane on your phone and stand in front of the TV. Everyone else, you're betting.");
+  postState("Choosing players: two lanes, left and right.");
+  render();
+  later(CLAIM_MS, startCalibrate);
+}
+function laneClaim(id, choice) {
+  if (phase !== "lanes" || laneOf(id) >= 0) return;
+  if (choice === "lane0" || choice === "lane1") {
+    const i = choice === "lane0" ? 0 : 1;
+    if (lanes[i].id) return send({ type: "screen", to: id, screen: screenFor(id) });
+    lanes[i].id = id; lanes[i].name = players.get(id)?.name ?? lanes[i].name;
+    say(`${lanes[i].name} takes the ${i === 0 ? "left" : "right"}!`);
+  }
+  refreshPhones(); render();
+  if (lanes[0].id && lanes[1].id) later(2500, startCalibrate);
+}
+
+function startCalibrate() {
+  if (phase !== "lanes") return;
+  token++; phase = "calibrate"; calSides = [];
+  refreshPhones(); render();
+  say("Quick warm up. Players, raise your LEFT arm. Hold it.");
+  postState("Warm up: players raise their left arm so the camera learns left from right.");
+  later(CAL_MS, () => {
+    const r = calSides.filter((s) => s === "right").length, l = calSides.filter((s) => s === "left").length;
+    mirror = r > l;
+    later(0, startPlay);
+  });
+}
+
+function startPlay() {
+  token++; phase = "play"; n = 0;
+  if (!playing().length) { say("I can't see anyone in the lanes. Let's try again later."); return finish(); }
+  say("Remember, only move when Little says. Arms down. Here we go!", true).then(() => later(600, nextCommand));
+  refreshPhones(); render();
+}
+
+function windowMs() { return Math.max(1800, 3200 - n * 110); }
+function trapChance() { return Math.min(0.45, 0.2 + n * 0.02); }
+
+async function nextCommand() {
+  if (phase !== "play") return;
+  if (n >= COMMANDS_MAX || !playing().length || (lanes.filter((l) => l.id || l.pts).length >= 2 && playing().length < 2)) return finish();
+  n++;
+  const move = MOVES[Math.floor(Math.random() * MOVES.length)];
+  const trap = n > 2 && Math.random() < trapChance();
+  current = { move, trap, events: [[], []], open: false, openedAt: 0 };
+  verdicts = [null, null];
+  render();
+  const t = token, myCurrent = current;
+  current.listenFrom = Date.now() + 300;
+  await say(trap ? `${cap(move.text)}!` : `Little says, ${move.text}!`, true);
+  if (t !== token || current !== myCurrent) return;
+  current.open = true; current.openedAt = Date.now();
+  const w = windowMs();
+  render(w);
+  later(w, judge);
+}
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+
+function onMotion(m) {
+  if (phase === "calibrate") { for (const a of m.actions ?? []) if (a.id === "arm-raise" && a.side) calSides.push(a.side); return; }
+  if (phase !== "play" || !current || Date.now() < (current.listenFrom ?? 0)) return;
+  for (const a of m.actions ?? []) {
+    const i = a.slot === 1 ? 1 : 0;
+    const side = a.side ? (mirror ? (a.side === "left" ? "right" : "left") : a.side) : null;
+    current.events[i].push({ id: a.id, side, at: Date.now() });
+  }
+}
+
+function moved(events, key) {
+  if (key === "both") {
+    if (events.some((e) => e.id === "both-arms-raise")) return true;
+    const ls = events.filter((e) => e.side === "left").map((e) => e.at), rs = events.filter((e) => e.side === "right").map((e) => e.at);
+    return ls.some((a) => rs.some((b) => Math.abs(a - b) < 1200));
+  }
+  return events.some((e) => e.id === "arm-raise" && e.side === key);
+}
+
+function judge() {
+  if (phase !== "play" || !current) return;
+  const c = current; c.open = false;
+  const lines = [];
+  for (const i of playing()) {
+    const ev = c.events[i], l = lanes[i];
+    const any = ev.length > 0;
+    let ok, why;
+    if (c.trap) { ok = !any; why = ok ? "STILL!" : "GOTCHA"; }
+    else if (moved(ev, c.move.key)) { ok = true; why = "✓"; }
+    else { ok = false; why = any ? "WRONG ARM" : "TOO SLOW"; }
+    verdicts[i] = { ok, why };
+    if (ok) l.pts += 100;
+    else {
+      l.lives--;
+      if (l.lives <= 0) { l.out = true; lines.push(`${l.name} is out!`); }
+      else if (c.trap) lines.push(`Gotcha, ${l.name}! I never said Little says.`);
+      else if (why === "WRONG ARM") lines.push(`${l.name}, other arm!`);
+    }
+  }
+  render();
+  refreshPhones();
+  postState(`Command ${n}: ${c.trap ? "trap, " : ""}${c.move.text}. ${lanes.filter((l) => l.id || l.pts).map((l) => `${l.name} ${l.out ? "out" : l.lives + " lives"}, ${l.pts} pts`).join("; ")}`);
+  const line = lines.slice(0, 2).join(" ");
+  const go = () => later(REST_MS, nextCommand);
+  if (line) say(line, true).then(go); else go();
+}
+
+function finish() {
+  token++; phase = "final";
+  send({ type: "motion_stop" });
+  const ranked = lanes.filter((l) => l.id || l.pts).sort((a, b) => (b.out ? 0 : 1) - (a.out ? 0 : 1) || b.pts - a.pts || b.lives - a.lives);
+  const winner = ranked[0];
+  const winIdx = winner ? lanes.indexOf(winner) : -1;
+  const correct = [];
+  for (const [id, li] of bets) if (li === winIdx) { betPts.set(id, 100); correct.push(players.get(id)?.name ?? "someone"); }
+  round = { ranked, correct };
+  const line = winner ? `${winner.name} wins Little Says with ${winner.pts} points!${correct.length ? ` Good bets from ${correct.slice(0, 3).join(", ")}.` : ""}` : "Nobody played. Next time!";
+  say(line);
+  refreshPhones();
+  postState(`Game over. ${line}`);
+  render();
+  later(12000, () => send({ type: "done" }));
+}
+let round = null;
+
+// ---------- TV rendering ----------
+function laneHtml(i) {
+  const l = lanes[i];
+  const seen = slotState[i] === "active";
+  const v = verdicts[i];
+  const cls = ["lane", i === 0 ? "left" : "right", seen ? "on" : "", l.out ? "out" : "", phase === "play" && !l.id && !seen ? "off" : "", v && v.ok ? "hit" : ""].join(" ");
+  const status = seen ? "camera sees you" : slotState[i] === "acquiring" || slotState[i] === "temporarily-lost" ? "finding you…" : "step into this lane";
+  return `<section class="${cls}"><div class="name">${esc(l.name)}</div><div class="sub">${i === 0 ? "Left lane" : "Right lane"} · ${status}</div>
+    <div class="lives">${"♥".repeat(Math.max(0, l.lives))}<span style="opacity:.2">${"♥".repeat(LIVES - Math.max(0, l.lives))}</span></div>
+    <div class="pts">${l.pts} pts</div>${v ? `<div class="verdict ${v.ok ? "good" : "bad"}">${v.why}</div>` : ""}</section>`;
+}
+function render(windowMsArg) {
+  if (phase === "final") {
+    const r = round;
+    app.innerHTML = `<div class="center"><div class="kicker">Little Says · Final</div><div class="big">${r.ranked[0] ? `<span class="g">${esc(r.ranked[0].name)}</span> wins` : "Game over"}</div>
+      <ol class="ranking">${r.ranked.map((l, i) => `<li class="${i === 0 ? "first" : ""}"><span class="rk">${i + 1}</span><span>${esc(l.name)}${l.out ? " · out" : ""}</span><span>${l.pts}</span></li>`).join("")}</ol>
+      <div class="sub2">${r.correct.length ? `Winning bets: ${esc(r.correct.join(", "))}` : "Nobody bet on the winner."}</div></div>`;
+    return;
+  }
+  const head = `<header><div><div class="kicker">${phase === "play" ? `Command ${n} of ${COMMANDS_MAX}` : phase === "calibrate" ? "Warm up" : "Pick your lane"}</div>
+    <div class="title"><b>Little</b> Says</div></div><div class="meter">camera: ${esc(motionState)} · bets: ${bets.size}</div></header>`;
+  let mid = "";
+  if (phase === "lanes") mid = `<div class="command"><div class="says">Two players: grab a lane on your phone</div><div class="do" style="font-size:96px">Stand in front of the TV</div></div>`;
+  else if (phase === "calibrate") mid = `<div class="command"><div class="says">Warm up</div><div class="do">LEFT ARM UP</div></div>`;
+  else if (current) {
+    const w = windowMsArg ?? 0;
+    mid = `<div class="command"><div class="says ${current.trap ? "trap" : ""}">Little says…</div><div class="do">${current.move.show}</div>
+      <div class="window ${windowMsArg ? "run" : ""}" style="--w:${w}ms"><i></i></div></div>`;
+  } else mid = `<div class="command"><div class="says">Only move when Little says</div><div class="do">ARMS DOWN</div></div>`;
+  app.innerHTML = head + mid + `<div class="lanes">${laneHtml(0)}${laneHtml(1)}</div>`;
+}
+
+// ---------- host messages ----------
+function setPlayers(list) {
+  const before = new Set(players.keys());
+  players = new Map((list ?? []).map((p) => [p.id, p]));
+  for (const p of list ?? []) if (!joinOrder.includes(p.id)) joinOrder.push(p.id);
+  for (const p of active()) if (!before.has(p.id)) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+  render();
+}
+function onVoice(text) {
+  const t = String(text ?? "").toLowerCase();
+  if (/\bswap\b|switch (lanes|sides)/.test(t)) {
+    const [a, b] = [lanes[0], lanes[1]]; lanes[0] = { ...b }; lanes[1] = { ...a };
+    say("Swapped! Left is right and right is left."); refreshPhones(); render(); return;
+  }
+  if (/\b(start|go|ready|begin)\b/.test(t) && phase === "lanes") return startCalibrate();
+  if (/\b(stop|end|enough|finish)\b/.test(t) && phase === "play") return finish();
+}
+window.addEventListener("message", (e) => {
+  const m = e.data;
+  if (!m || typeof m.type !== "string") return;
+  switch (m.type) {
+    case "init": setPlayers(m.players); startLanes(); break;
+    case "players": setPlayers(m.players); break;
+    case "input": {
+      const id = m.data?.id;
+      if (!id) return;
+      if (phase === "lanes") laneClaim(m.player, id);
+      else if (String(id).startsWith("bet") && laneOf(m.player) < 0 && !bets.has(m.player)) {
+        bets.set(m.player, id === "bet1" ? 1 : 0);
+        send({ type: "screen", to: m.player, screen: screenFor(m.player) }); render();
+      }
+      break;
+    }
+    case "motion": onMotion(m); break;
+    case "motion_status": {
+      motionState = m.state + (m.reason ? ` (${m.reason})` : "");
+      slotState = [0, 1].map((i) => (m.slots ?? []).find((s) => s.slot === i)?.state ?? "vacant");
+      if (m.state === "unavailable" && phase !== "final") { say("I can't use the camera here, so Little Says is off for now."); finish(); return; }
+      if (phase !== "play") render(); else { for (const i of [0, 1]) document.querySelectorAll(".lane")[i]?.classList.toggle("on", slotState[i] === "active"); }
+      break;
+    }
+    case "said": { const f = saidWaiters.get(m.id); if (f) { saidWaiters.delete(m.id); f(); } break; }
+    case "voice": onVoice(m.text); break;
+  }
+});
+</script>
+</body>
+</html>
