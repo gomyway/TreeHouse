@@ -33,3 +33,10 @@ new_sqlite_classes = ["AuthorJob"]
 
 [observability]
 enabled = true
+
+# Authoring model (the only direct model call in the system). Chosen for decode speed on Fireworks
+# serverless: gpt-oss-120b has ~5B active params and streams several hundred tok/s. Fallback if it
+# ignores the two-block format: accounts/fireworks/models/qwen3-coder-480b-a35b-instruct.
+[vars]
+AUTHOR_MODEL = "accounts/fireworks/models/gpt-oss-120b"
+AUTHOR_MAX_TOKENS = "16000"
