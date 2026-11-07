@@ -38,7 +38,7 @@ export type RelayToTv =
   | { type: "join"; player: Player }
   | { type: "rejoin"; player: Player }
   | { type: "leave"; player: Player }
-  | { type: "input"; player: PlayerId; data: unknown }
+  | { type: "input"; player: PlayerId; seq?: number; data: unknown }
   | { type: "sensor"; player: PlayerId; kind: SensorKind; data: unknown }
   | { type: "error"; message: string };
 
@@ -55,11 +55,17 @@ export type RelayToPhone =
   | { type: "joined"; code: RoomCode; player: Player }
   | { type: "tv"; status: "connected" | "reconnecting" | "closed" }
   | { type: "error"; message: string }
+  // Reply to a phone `input` that carried `seq`, sent once the relay has handed it to the TV socket.
+  // delivered: false means no TV socket was attached (inside the TV grace window): the input was dropped.
+  | { type: "ack"; seq: number; delivered: boolean }
   | TvToRelay; // screen/state/ask/play/kick, delivered as-is
 
 // ---- Phone → Relay (relay stamps `player`, forwards to TV) ----
 export type PhoneToRelay =
-  | { type: "input"; data: unknown }
+  // seq: increasing per phone page load; set on discrete inputs (taps, text, custom), omitted on the
+  // pad's 20 Hz stream. The relay acks it; the TV receives it too and may ignore it. A phone may
+  // send the same seq twice after a reconnect, and a re-tap sends a new seq for the same answer.
+  | { type: "input"; seq?: number; data: unknown }
   | { type: "sensor"; kind: SensorKind; data: unknown };
 
 export const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I or O

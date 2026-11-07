@@ -15,7 +15,7 @@ const sensors = { gyro: null, camera: null, mic: null }; // active stop() functi
 
 // ---------- join ----------
 function renderJoin(msg) {
-  stopPad(); stopClock();
+  stopPad(); stopClock(); clearPending(); unacked.clear(); // left the room: nothing to resend
   main.className = "join"; // drop any dead/expired state left by the previous screen
   // The remembered name is scoped to one room code, so a phone that joined an earlier room (or a
   // friend's room) starts clean here and never auto-joins as someone else.
@@ -47,6 +47,7 @@ function renderJoin(msg) {
 }
 
 function connect(c, name) {
+  if (c !== code) { unacked.clear(); clearPending(); } // never replay one room's answers into another
   code = c; closedByTv = false;
   const prev = safeGet(sessionStorage, "lr.player." + code);
   const url = `${wsBase}/join?code=${code}&name=${encodeURIComponent(name)}${prev ? "&player=" + prev : ""}`;
@@ -55,39 +56,123 @@ function connect(c, name) {
   lastName = name;
   const sock = new WebSocket(url);
   ws = sock;
-  sock.onopen = () => { retry = 0; startHeartbeat(sock); };
-  sock.onmessage = (e) => { if (e.data === "pong") return; handle(JSON.parse(e.data)); };
-  sock.onclose = () => {
-    if (ws !== sock) return; // superseded by a newer socket
-    stopHeartbeat(); setTv("offline"); stopAllSensors();
-    if (closedByTv) return;
-    const wait = Math.min(8000, 500 * 2 ** retry++);
-    reconnectTimer = setTimeout(() => connect(code, name), wait);
-  };
+  // A connect that hangs (dead radio, captive NAT) would otherwise sit in CONNECTING for a minute+.
+  const connectTimer = setTimeout(() => { if (sock.readyState === 0) sock.close(); }, 10_000);
+  // The relay attaches the player before the 101, so frames sent right after open are routed.
+  sock.onopen = () => { clearTimeout(connectTimer); retry = 0; startHeartbeat(sock); flush(sock); };
+  sock.onmessage = (e) => { if (ws === sock) heard(); if (e.data === "pong") return; handle(JSON.parse(e.data)); };
+  sock.onclose = () => { clearTimeout(connectTimer); lost(sock, false); };
+}
+// The socket is gone (closed, or declared dead by the watchdog): go offline and reconnect.
+function lost(sock, now) {
+  if (ws !== sock) return; // superseded by a newer socket
+  stopHeartbeat(); setTv("offline"); stopAllSensors();
+  if (closedByTv) return;
+  if (now) retry = 0;
+  const wait = now ? 0 : Math.min(8000, 500 * 2 ** retry++);
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => connect(code, lastName), wait);
 }
 
 // Keep-alive + fast resume. Carrier NAT drops a silent WebSocket in 30-60 s and iOS kills sockets
 // when the screen locks, so: heartbeat every 20 s, and reconnect at once when the page is visible again.
-let heartbeat = null, reconnectTimer = null, lastName = null;
-function startHeartbeat(sock) { stopHeartbeat(); heartbeat = setInterval(() => { if (sock.readyState === 1) sock.send("ping"); }, 20_000); }
-function stopHeartbeat() { clearInterval(heartbeat); heartbeat = null; }
-document.addEventListener("visibilitychange", () => {
+// A half-open socket (iOS after a screen dim, a NAT that forgot us) still reports OPEN while every
+// frame vanishes, so readyState alone proves nothing: a ping that gets no pong (or any frame) within
+// the watchdog window means the socket is dead, and we close it and reconnect at once.
+let heartbeat = null, watchdog = null, reconnectTimer = null, lastName = null;
+const PONG_WAIT_MS = 8000, RESUME_PONG_WAIT_MS = 4000;
+function startHeartbeat(sock) {
+  stopHeartbeat();
+  heartbeat = setInterval(() => { if (sock.readyState === 1) { sock.send("ping"); expectPong(sock, PONG_WAIT_MS); } }, 20_000);
+}
+function stopHeartbeat() { clearInterval(heartbeat); heartbeat = null; clearTimeout(watchdog); watchdog = null; }
+function heard() { clearTimeout(watchdog); watchdog = null; } // any frame proves the socket is alive
+function expectPong(sock, ms) {
+  clearTimeout(watchdog);
+  watchdog = setTimeout(() => {
+    watchdog = null;
+    if (ws !== sock) return;
+    sock.onclose = sock.onmessage = null; try { sock.close(); } catch {}
+    lost(sock, true);
+  }, ms);
+}
+if (inBrowser) document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || closedByTv || !code || !lastName) return;
+  if (ws && ws.readyState === 1) { try { ws.send("ping"); } catch {} expectPong(ws, RESUME_PONG_WAIT_MS); return; }
   if (!ws || ws.readyState > 1) { retry = 0; clearTimeout(reconnectTimer); connect(code, lastName); }
 });
 
-function send(frame) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(frame)); }
-const input = (data) => send({ type: "input", data });
+// ---------- outbound: inputs are queued and acked, streams are fire-and-forget ----------
+// Every non-stream input carries an increasing `seq`; the relay answers { type: "ack", seq, delivered }.
+// An input stays in `unacked` until its ack arrives, so one sent into a half-open socket (or tapped
+// while offline) is sent again, in order, when the next socket opens. Capped at 20, dropped after 30 s.
+// Sensor frames and the pad's 20 Hz stream are never queued: stale motion is worse than none.
+const QUEUE_MAX = 20, QUEUE_TTL_MS = 30_000, ACK_WAIT_MS = 6000;
+let seq = 0;
+const unacked = new Map(); // seq -> { frame, at }
+const isOpen = () => Boolean(ws && ws.readyState === 1);
+function send(frame) {
+  if (!isOpen()) return false;
+  try { ws.send(JSON.stringify(frame)); return true; } catch { return false; }
+}
+function input(data, { stream = false } = {}) {
+  if (stream) { send({ type: "input", data }); return null; }
+  const frame = { type: "input", seq: ++seq, data };
+  unacked.set(frame.seq, { frame, at: Date.now() });
+  while (unacked.size > QUEUE_MAX) unacked.delete(unacked.keys().next().value); // oldest first
+  send(frame);
+  return frame.seq;
+}
+function flush(sock) {
+  const cutoff = Date.now() - QUEUE_TTL_MS;
+  for (const [s, e] of unacked) {
+    if (e.at < cutoff) { unacked.delete(s); continue; }
+    try { sock.send(JSON.stringify(e.frame)); } catch { return; }
+  }
+  if (pending) armAckTimer(); // the ack clock starts when the answer actually leaves the phone
+}
 const sensor = (kind, data) => send({ type: "sensor", kind, data });
+
+// The answer the current screen is waiting on: { seq, ok(), retry(), timer }.
+let pending = null;
+function clearPending() { if (pending) clearTimeout(pending.timer); pending = null; }
+function awaitAck(s, wasOpen, handlers) {
+  clearPending();
+  pending = { seq: s, ...handlers, timer: null };
+  if (!wasOpen) toast("Reconnecting, your answer is queued");
+  armAckTimer();
+}
+function armAckTimer() {
+  clearTimeout(pending.timer);
+  pending.timer = setTimeout(() => {
+    if (!pending) return;
+    if (!isOpen()) return armAckTimer(); // still queued: flush() re-arms once it is sent
+    const p = pending; pending = null;
+    toast("No answer from the TV yet");
+    p.retry();
+  }, ACK_WAIT_MS);
+}
+function onAck(f) {
+  unacked.delete(f.seq);
+  if (!pending || pending.seq !== f.seq) return;
+  const p = pending; clearPending();
+  if (f.delivered === false) { toast("TV is away. Tap again when it's back."); p.retry(); }
+  else p.ok();
+}
 
 // ---------- frames from the relay / TV ----------
 function handle(f) {
   switch (f.type) {
-    case "joined":
+    case "joined": {
+      // A reconnect as the same player keeps whatever is on screen (and any answer awaiting its ack);
+      // the TV re-sends the screen it wants on rejoin.
+      const resumed = player?.id === f.player.id;
       player = f.player; safeSet(sessionStorage, "lr.player." + f.code, player.id);
       $("hdr-code").innerHTML = `<b>${f.code}</b>`; $("hdr-name").textContent = player.name;
-      renderScreen({ kind: "info", title: "You're in.", body: "Look at the TV." });
+      if (!resumed) renderScreen({ kind: "info", title: "You're in.", body: "Look at the TV." });
       break;
+    }
+    case "ack": onAck(f); break;
     case "tv": setTv(f.status); if (f.status === "closed") { closedByTv = true; player = null; renderJoin("That room closed."); } break;
     case "error": closedByTv = true; renderJoin(f.message === "no such room" ? "No room with that code." : f.message); break;
     case "screen": renderScreen(f.screen); break;
@@ -102,20 +187,40 @@ function setTv(status) { $("hdr-tv").textContent = status === "connected" ? "●
 
 // ---------- screens ----------
 function renderScreen(s) {
-  stopPad();
+  stopPad(); clearPending();
   main.className = ""; stopClock();
   switch (s.kind) {
     case "info": main.innerHTML = `<h1>${esc(s.title)}</h1>${s.body ? `<p>${esc(s.body)}</p>` : ""}`; break;
     case "buttons":
       main.innerHTML = `${s.prompt ? `<h1>${esc(s.prompt)}</h1>` : ""}${s.items.map((b) => `<button data-id="${esc(b.id)}">${esc(b.label)}</button>`).join("")}`;
-      main.querySelectorAll("button").forEach((b) => (b.onclick = () => { input({ kind: "button", id: b.dataset.id }); b.disabled = true; }));
+      const btns = [...main.querySelectorAll("button[data-id]")];
+      btns.forEach((b) => (b.onclick = () => {
+        if (b.disabled) return;
+        // Immediate feedback: the tapped one is outlined, every option locks until the ack (or a timeout).
+        btns.forEach((x) => (x.disabled = true)); b.classList.add("pressed");
+        const wasOpen = isOpen();
+        const label = b.textContent;
+        awaitAck(input({ kind: "button", id: b.dataset.id }), wasOpen, {
+          ok: () => { b.textContent = label + " \u2713"; },
+          retry: () => { if (timesUp()) return; b.classList.remove("pressed"); btns.forEach((x) => (x.disabled = false)); },
+        });
+      }));
       break;
     case "text": {
       const max = textMax(s);
       main.innerHTML = `<h1>${esc(s.prompt)}</h1><textarea id="t" rows="3" maxlength="${max}" placeholder="${esc(s.placeholder ?? "")}"></textarea><p class="count" id="count">0/${max}</p><button id="send">Send</button>`;
       const t = $("t"), count = $("count");
       t.oninput = () => { count.textContent = `${t.value.length}/${max}`; count.classList.toggle("full", t.value.length >= max); };
-      $("send").onclick = () => { const v = t.value.trim().slice(0, max); if (!v) return; input({ kind: "text", text: v }); renderScreen({ kind: "info", title: "Sent.", body: "Look at the TV." }); };
+      const btn = $("send");
+      btn.onclick = () => {
+        const v = t.value.trim().slice(0, max); if (!v || btn.disabled) return;
+        btn.disabled = t.disabled = true; btn.classList.add("pressed"); btn.textContent = "Sending\u2026";
+        const wasOpen = isOpen();
+        awaitAck(input({ kind: "text", text: v }), wasOpen, {
+          ok: () => renderScreen({ kind: "info", title: "Sent.", body: "Look at the TV." }),
+          retry: () => { btn.classList.remove("pressed"); btn.textContent = "Send"; if (!timesUp()) btn.disabled = t.disabled = false; },
+        });
+      };
       t.focus();
       break;
     }
@@ -157,13 +262,14 @@ function startClock(s) {
 function expire(s) {
   main.querySelector(".countdown")?.classList.add("over");
   const frame = expiryInput(s, $("t")?.value);
-  if (frame) input(frame);
+  if (frame && !pending) input(frame); // a Send already in flight is the answer; don't send it twice
   stopPad();
   main.querySelectorAll("button[data-id], #t, #send").forEach((e) => (e.disabled = true));
   main.querySelectorAll(".pad, iframe").forEach((e) => e.classList.add("dead"));
   const msg = document.createElement("h1"); msg.className = "timesup"; msg.textContent = "Time's up, look at the TV.";
   main.querySelector(".countdown")?.after(msg);
 }
+const timesUp = () => Boolean(main.querySelector(".timesup"));
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
 // custom screens post {type:"input", data} to the parent; we forward state to them
@@ -176,8 +282,8 @@ function startPad() {
   const pad = $("pad"), dot = $("dot"); let x = 0, y = 0, active = false;
   const move = (e) => { const r = pad.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; x = Math.max(-1, Math.min(1, ((t.clientX - r.left) / r.width) * 2 - 1)); y = Math.max(-1, Math.min(1, ((t.clientY - r.top) / r.height) * 2 - 1)); dot.style.left = `${(x + 1) * 50}%`; dot.style.top = `${(y + 1) * 50}%`; };
   pad.onpointerdown = (e) => { active = true; move(e); }; pad.onpointermove = (e) => active && move(e);
-  pad.onpointerup = pad.onpointercancel = () => { active = false; x = y = 0; dot.style.left = "50%"; dot.style.top = "50%"; input({ kind: "pad", x: 0, y: 0 }); };
-  padTimer = setInterval(() => active && input({ kind: "pad", x: +x.toFixed(3), y: +y.toFixed(3) }), 50);
+  pad.onpointerup = pad.onpointercancel = () => { active = false; x = y = 0; dot.style.left = "50%"; dot.style.top = "50%"; input({ kind: "pad", x: 0, y: 0 }, { stream: true }); };
+  padTimer = setInterval(() => active && input({ kind: "pad", x: +x.toFixed(3), y: +y.toFixed(3) }, { stream: true }), 50);
 }
 function stopPad() { clearInterval(padTimer); padTimer = null; }
 

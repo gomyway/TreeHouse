@@ -147,7 +147,11 @@ export class Room {
       this.toPhones(to, f);
     } else if (att.role === "phone") {
       if (f.type !== "input" && f.type !== "sensor") return;
-      this.toTv({ ...f, player: att.id });
+      const tv = this.tvSocket();
+      const delivered = Boolean(tv) && Room.send(tv, JSON.stringify({ ...f, player: att.id }));
+      // Ack numbered inputs so the phone can show the tap landed (or that the TV is away and it should
+      // tap again later). Sensor streams are never acked.
+      if (f.type === "input" && typeof f.seq === "number") Room.send(ws, JSON.stringify({ type: "ack", seq: f.seq, delivered }));
     }
   }
 

@@ -21,6 +21,10 @@
     button { background: var(--accent); color: #1a1105; border: 0; font-weight: 700; min-height: 60px; }
     button.ghost { background: #171513; color: var(--fg); border: 1px solid var(--line); }
     button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.45; }
+    button:disabled:active { transform: none; }
+    /* the answer just tapped: stays bright with an accent ring while the others dim */
+    button.pressed, button.pressed:disabled { opacity: 1; outline: 3px solid var(--accent); outline-offset: 3px; }
     .pad { flex: 1; min-height: 50vh; border: 1px dashed var(--line); border-radius: 20px; display: grid; place-items: center; color: var(--mute); touch-action: none; position: relative; }
     .pad .dot { position: absolute; width: 56px; height: 56px; border-radius: 50%; background: var(--accent); transform: translate(-50%, -50%); left: 50%; top: 50%; }
     iframe { flex: 1; border: 0; border-radius: 14px; background: #fff; min-height: 60vh; }

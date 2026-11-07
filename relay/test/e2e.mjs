@@ -1,5 +1,6 @@
 // Headless end-to-end against the relay: a fake TV opens a room, a fake phone joins, frames route both
 // ways, rejoin works, kick works, a TV drop keeps the room and a token reattach restores it.
+// Inputs carrying `seq` are acked to the phone (delivered:false while the TV is away).
 // Targets RELAY_URL (ws://host:port) when set, otherwise starts `wrangler dev` on a random port.
 import { spawn } from "node:child_process";
 import WebSocket from "ws";
@@ -48,6 +49,12 @@ if ((await next(phone, "screen")).screen.kind !== "buttons") fail("screen not ro
 send(phone, { type: "input", data: { id: "a" } });
 const inp = await next(tv, "input"); if (inp.player !== joined.player.id || inp.data.id !== "a") fail("input not stamped"); ok("phone → tv input stamped with player");
 
+const ackP = next(phone, "ack"), seqInP = next(tv, "input");
+send(phone, { type: "input", seq: 7, data: { kind: "button", id: "a" } });
+const [ack, seqIn] = await Promise.all([ackP, seqInP]);
+if (ack.seq !== 7 || ack.delivered !== true) fail(`ack ${JSON.stringify(ack)}`);
+if (seqIn.seq !== 7 || seqIn.player !== joined.player.id) fail(`tv input seq ${JSON.stringify(seqIn)}`); ok("input with seq → tv gets it, phone gets ack delivered:true");
+
 send(tv, { type: "state", payload: { round: 1 } });
 if ((await next(phone, "state")).payload.round !== 1) fail("broadcast state"); ok("tv → all state");
 
@@ -68,6 +75,10 @@ await next(phone2, "kick"); ok("kick delivered");
 
 tv.close();
 if ((await next(phone3, "tv")).status !== "reconnecting") fail("tv grace"); ok("tv drop → phones told reconnecting, room kept");
+
+send(phone3, { type: "input", seq: 1, data: { kind: "button", id: "a" } });
+const away = await next(phone3, "ack");
+if (away.seq !== 1 || away.delivered !== false) fail(`ack while tv away ${JSON.stringify(away)}`); ok("input while tv away → ack delivered:false");
 
 const backP = next(phone3, "tv"); // sent to phones while the new TV socket is still being accepted
 const tv2 = await open(`/host?code=${room.code}&token=${room.hostToken}`);
