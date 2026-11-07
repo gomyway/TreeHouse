@@ -385,6 +385,10 @@ function endVote() {
       : `The bots were ${and(botCards.map((c) => c.letter))}. ${caughtNames.length ? "Nice hunting." : "They fooled you."}`;
     later(2500, () => { r.stage = 1; render(); send({ type: "say", text: line }); });
     postState(`Reveal. ${line}`);
+    // Moments for the end-of-game recap (saved on the TV).
+    for (const c of botCards) if (!caughtNames.includes(c)) send({ type: "moment", kind: "bot", title: "The bot fooled everyone", caption: `"${c.text}" was written by a bot (${nameOf(c.author)}). Prompt: ${r.prompt}` });
+    const best = r.cards.filter((c) => !isBot(c.author)).sort((a, b) => (r.funnyCount.get(b.letter) ?? 0) - (r.funnyCount.get(a.letter) ?? 0))[0];
+    if (best && (r.funnyCount.get(best.letter) ?? 0) >= 2) send({ type: "moment", kind: "funny", title: `"${best.text}"`, caption: `Funniest answer to: ${r.prompt}`, players: [nameOf(best.author)] });
   } else {
     const humanCards = r.cards.filter((c) => !isBot(c.author));
     const order = shuffle(botCards);
@@ -393,6 +397,8 @@ function endVote() {
     const line = `The human was ${and(humanCards.map((c) => nameOf(c.author)))}, answer ${and(humanCards.map((c) => c.letter))}. ${found ? "The detectives found them!" : "The bots hid them perfectly."}${r.aiGuess ? (humanCards.some((c) => c.letter === r.aiGuess.letter) ? " And so did I." : " I guessed wrong, which never happens.") : ""}`;
     later(1800 + order.length * 900 + 600, () => { r.stage = 1; render(); send({ type: "say", text: line }); });
     postState(`Reveal. ${line}`);
+    send({ type: "moment", kind: found ? "clutch" : "bot", title: found ? "The detectives found the human" : "The human hid among the bots",
+      caption: `"${humanCards.map((c) => c.text).join('" and "')}" was really ${and(humanCards.map((c) => nameOf(c.author)))}.`, players: humanCards.map((c) => nameOf(c.author)) });
   }
   later(REVEAL_MS + (r.mode === "human" ? 3000 : 0), () => (roundIdx + 1 < plan.length ? startRound(roundIdx + 1) : finish()));
 }
@@ -407,6 +413,12 @@ function finish() {
   const a = round.awards;
   const awardsLine = [a.funny && `Funniest human: ${a.funny.name}.`, a.robotic && `Most robotic human: ${a.robotic.name}.`].filter(Boolean).join(" ");
   send({ type: "say", text: `${winner} ${awardsLine}` });
+  if (winners.length) send({ type: "moment", kind: "win", title: `${and(winners)} ${winners.length > 1 ? "win" : "wins"} Who's the Bot?`, caption: `${ranked[0].pts} points`, players: winners });
+  // Credits: one "award" moment per role.
+  if (winners.length) send({ type: "moment", kind: "award", title: "Champion of Humanity", players: winners });
+  if (a.funny) send({ type: "moment", kind: "award", title: "The Funniest Human", players: [a.funny.name] });
+  if (a.hunter) send({ type: "moment", kind: "award", title: "Bot Hunter", players: [a.hunter.name] });
+  if (a.robotic) send({ type: "moment", kind: "award", title: "The Most Robotic Human", players: [a.robotic.name] });
   for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
   postState(`Game over. ${winner} ${awardsLine}`);
   render();

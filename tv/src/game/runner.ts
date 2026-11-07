@@ -2,6 +2,7 @@ import type { LittleApp } from "@kabletv/little-sdk";
 import type { Player, PlayerId, RoomTransport, Screen, SensorKind } from "../room/model";
 import { botAnswer } from "./bots";
 import { trackPeople } from "./people";
+import { COCO, type ClipFrame, type Moment } from "./memories";
 import { createMotionSession, MOTION_ACTION_IDS, MOTION_CONTROL_IDS, MOTION_HELD_IDS } from "@kabletv/little-motion";
 
 // Bridges one game bundle (a sandboxed iframe) to the room and to the Little host.
@@ -13,6 +14,9 @@ import { createMotionSession, MOTION_ACTION_IDS, MOTION_CONTROL_IDS, MOTION_HELD
 //                ai {id, instruction, context?, schema?} · ai_image {id, hint, instruction?}
 //                bot_answer {id, prompt, humans, imitate?, caught?, effort?, names?} (see ./bots.ts)
 //                motion_start {actions?, held?, controls?, maxPlayers?, mode?: "people"} · motion_stop
+//                moment {title, caption?, players?, kind?, clip?: "pose"} → saved to the TV's memory
+//                book and replayed in the end-of-game recap; clip "pose" attaches the last ~2.5 s
+//                of stick figures (camera games)
 //                (mode "people": one raw stream, phantom filtering, numbered figures 1..2 and
 //                 skeleton-based arm-raise / both-arms-raise; adds host → game
 //                 people {people:[{n, box, points, arms}]} ~10 Hz. See ./people.ts)
@@ -46,10 +50,15 @@ export function createGameHost(opts: {
   transport: () => RoomTransport | null;
   onState: (s: GameState) => void;
   onDone: () => void;
+  onMoment?: (m: Moment) => void;
+  title?: string;
 }): GameHost {
   const { frame, app } = opts;
   let disposed = false;
   let motion: { close(): void } | null = null;
+  // Rolling skeleton buffer for moment clips (people mode only).
+  const clipBuf: ClipFrame[] = [];
+  const CLIP_MS = 2500;
   const stopMotion = () => {
     motion?.close();
     motion = null;
@@ -79,6 +88,18 @@ export function createGameHost(opts: {
         },
         onPeople: (people) => {
           last = people;
+          const t = Date.now();
+          clipBuf.push({
+            t,
+            people: people.map((p) => ({
+              n: p.n,
+              pts: COCO.flatMap((k) => {
+                const v = p.points[k];
+                return v && v[2] >= 0.3 ? [Math.round(v[0] * 1000) / 1000, Math.round(v[1] * 1000) / 1000] : [-1, -1];
+              }),
+            })),
+          });
+          while (clipBuf.length && t - clipBuf[0].t > 3000) clipBuf.shift();
           status(people);
           post({ type: "people", people });
         },
@@ -201,6 +222,24 @@ export function createGameHost(opts: {
       case "done":
         opts.onDone();
         break;
+      case "moment": {
+        const title = typeof m.title === "string" ? m.title.trim().slice(0, 120) : "";
+        if (!title) break;
+        const strs = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, 40)).slice(0, 6) : undefined);
+        const now = Date.now();
+        const clip = m.clip === "pose" && clipBuf.length ? clipBuf.filter((f) => now - f.t <= CLIP_MS).map((f) => ({ ...f, t: f.t - now })) : undefined;
+        opts.onMoment?.({
+          id: `m_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+          at: now,
+          game: opts.title ?? "Game",
+          title,
+          caption: typeof m.caption === "string" ? m.caption.slice(0, 200) : undefined,
+          players: strs(m.players),
+          kind: typeof m.kind === "string" ? m.kind.slice(0, 20) : undefined,
+          clip: clip?.length ? clip : undefined,
+        });
+        break;
+      }
       case "ai":
       case "ai_image":
         void runAi(m);

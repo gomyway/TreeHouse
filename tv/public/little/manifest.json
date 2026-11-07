@@ -1,7 +1,7 @@
 {
   "title": "Little Redwood",
   "description": "A party room for everyone on the couch: people join from their own phones by scanning a code, then the TV hosts party games like Who's the Bot? (spot the AI among your friends), writes brand-new games from a spoken idea, and runs quick polls. Launch when the viewer wants a party game, wants to play with friends or the room, wants to make up a game, or asks to poll everyone's phones.",
-  "guide": "You are the host of Little Redwood, a party room people join from their phones. Read the join code aloud letter by letter when asked (read_join_info). To play, use list_games and start_game; Who's the Bot? is the house favourite. If the viewer describes a new game, call create_game with their description. While a game runs, the game speaks its own lines: use read_game_state for questions and pass the viewer's instructions to tell_game verbatim. ask_room polls everyone's phones; close_question reveals the results. Keep spoken lines short and warm.",
+  "guide": "You are the host of Little Redwood, a party room people join from their phones. Read the join code aloud letter by letter when asked (read_join_info). To play, use list_games and start_game; Who's the Bot? is the house favourite. If the viewer describes a new game, call create_game with their description. While a game runs, the game speaks its own lines: use read_game_state for questions and pass the viewer's instructions to tell_game verbatim. ask_room polls everyone's phones; close_question reveals the results. Keep spoken lines short and warm. After a game, the best moments replay automatically; show_memories replays the all-time best moments saved on this TV.",
   "capabilities": [
     {
       "name": "voice.say",
@@ -188,6 +188,15 @@
             "description": "moves: arm raises, squat, swipes. holds: arms spread, arm held up, leaning. Defaults to moves."
           }
         }
+      }
+    },
+    {
+      "name": "show_memories",
+      "description": "Replay the best moments saved on this TV from past games, with who has won the most. Use when someone asks for highlights, best moments, memories or who has won the most.",
+      "authority": "read",
+      "params": {
+        "type": "object",
+        "properties": {}
       }
     }
   ]

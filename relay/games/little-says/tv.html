@@ -299,6 +299,9 @@ function judge() {
     else if (did(i, c.move)) { ok = true; why = "✓"; }
     else { ok = false; why = any ? "WRONG MOVE" : "TOO SLOW"; }
     verdicts[i] = { ok, why };
+    // Moments with a stick-figure clip of what just happened (the host attaches ~2.5 s of skeletons).
+    if (!ok && c.trap && any) { w.gotchas = (w.gotchas ?? 0) + 1; send({ type: "moment", kind: "fail", clip: "pose", title: `Gotcha, ${w.name}!`, caption: c.kidding ? `Moved on "${c.move.text}… just kidding!"` : `Moved on "${c.move.text}" without Little says`, players: [w.name] }); }
+    if (ok && !c.trap && (c.move.combo || c.move.level === 3)) send({ type: "moment", kind: "clutch", clip: "pose", title: `${w.name} nailed it`, caption: `Little says: ${c.move.text}`, players: [w.name] });
     if (ok) w.pts += 100;
     else {
       w.lives--;
@@ -325,6 +328,13 @@ function finish() {
   final = { ranked, correct };
   const line = win ? `${win.name} wins Little Says with ${win.pts} points!${correct.length ? ` Good bets from ${correct.slice(0, 3).join(", ")}.` : ""}` : "Nobody played. Next time!";
   say(line); refreshPhones(); postState(`Game over. ${line}`); render();
+  if (win) {
+    send({ type: "moment", kind: "win", title: `${win.name} wins Little Says`, caption: `${win.pts} points${win.out ? "" : ", still standing"}`, players: [win.name] });
+    send({ type: "moment", kind: "award", title: "Little Says Champion", players: [win.name] });
+  }
+  const tricked = ranked.filter((w) => (w.gotchas ?? 0) > 0).sort((a, b) => (b.gotchas ?? 0) - (a.gotchas ?? 0))[0];
+  if (tricked) send({ type: "moment", kind: "award", title: "Most Easily Tricked", players: [tricked.name] });
+  if (correct.length) send({ type: "moment", kind: "award", title: "Best Bets in the House", players: correct.slice(0, 3) });
   later(12000, () => send({ type: "done" }));
 }
 

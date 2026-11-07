@@ -2,6 +2,7 @@ import { useLittleApp, useLittleEnter, useLittleTool } from "@kabletv/little-rea
 import { useCallback, useEffect, useRef, useState } from "react";
 import { authorGame } from "./game/author";
 import { findGame, listGames, loadGameHtml, type GameMeta } from "./game/catalog";
+import { allMemories, pickHighlights, remember, type Moment } from "./game/memories";
 import { createGameHost, type GameHost, type GameState } from "./game/runner";
 import type { Player, RoomEvent, Screen } from "./room/model";
 import { playerName, useRoom } from "./room/useRoom";
@@ -9,6 +10,8 @@ import { CameraCheck, type CameraSet } from "./ui/CameraCheck";
 import { AuthoringView, GameView } from "./ui/GameView";
 import { Lobby, StatusPill } from "./ui/Lobby";
 import { QuestionView, type Answer, type Question } from "./ui/QuestionView";
+import { Recap } from "./ui/Recap";
+import { DEMO_CREDITS, DEMO_MOMENTS, DEMO_SCORES } from "./ui/recapDemo";
 
 // The TV side of Little Redwood: a room phones join by code, a catalog of game bundles the
 // TV runs in a sandboxed iframe (built-in, stored on the relay, or written live by /author),
@@ -18,6 +21,7 @@ type View =
   | { kind: "lobby" }
   | { kind: "question" }
   | { kind: "camera"; set: CameraSet }
+  | { kind: "recap"; heading: string; moments: Moment[]; scores?: Record<string, number>; credits?: Moment[] }
   | { kind: "game"; meta: GameMeta; html: string }
   | { kind: "authoring"; prompt: string; status: string; elapsedMs: number; error?: string };
 
@@ -33,6 +37,9 @@ const GUIDES: Record<View["kind"], string> = {
     "A game is running on the TV and phones. The game speaks its own lines; do not repeat them. Use read_game_state to answer " +
     "questions about the score or what is happening. Pass the viewer's instructions for the game (skip, reveal, make it harder, " +
     "add a bot, change the topic) to tell_game verbatim. stop_game returns to the lobby.",
+  recap:
+    "The best moments are replaying on screen next to the leaderboard. React to them in a sentence if asked, " +
+    "or say who won. It returns to the lobby by itself; back_to_lobby skips it.",
   camera:
     "A camera check is on screen: it shows what the television's motion tracking sees for each player standing in front of it. " +
     "Encourage people to try both arms up, one arm, a squat, a swipe, arms wide and leaning. back_to_lobby or camera_check with on=false ends it.",
@@ -42,10 +49,11 @@ const GUIDES: Record<View["kind"], string> = {
 };
 
 const TOOLS: Record<View["kind"], string[]> = {
-  lobby: ["read_join_info", "list_games", "start_game", "create_game", "ask_room", "kick_player", "camera_check"],
+  lobby: ["read_join_info", "list_games", "start_game", "create_game", "ask_room", "kick_player", "camera_check", "show_memories"],
   question: ["read_join_info", "read_answers", "close_question", "back_to_lobby", "kick_player"],
   game: ["read_join_info", "read_game_state", "tell_game", "stop_game", "kick_player"],
   camera: ["camera_check", "back_to_lobby", "read_join_info"],
+  recap: ["back_to_lobby", "read_join_info"],
   authoring: ["read_join_info", "back_to_lobby"],
 };
 
@@ -69,7 +77,12 @@ function parseAnswer(q: Question, data: unknown): Answer | null {
 
 export default function App() {
   const app = useLittleApp();
-  const [view, setView] = useState<View>({ kind: "lobby" });
+  // Dev preview of the recap: open the app with ?recapdemo.
+  const [view, setView] = useState<View>(() =>
+    new URLSearchParams(location.search).has("recapdemo")
+      ? { kind: "recap", heading: "Best moments · demo", moments: DEMO_MOMENTS, scores: DEMO_SCORES, credits: DEMO_CREDITS }
+      : { kind: "lobby" },
+  );
   const viewRef = useRef(view);
   viewRef.current = view;
 
@@ -86,6 +99,7 @@ export default function App() {
   const gameStateRef = useRef<GameState | null>(null);
   gameStateRef.current = gameState;
   const hostRef = useRef<GameHost | null>(null);
+  const sessionMoments = useRef<Moment[]>([]);
   const authorAbort = useRef<AbortController | null>(null);
 
   const refreshGames = useCallback(async () => {
@@ -170,6 +184,7 @@ export default function App() {
     const html = await loadGameHtml(meta);
     hostRef.current?.dispose();
     hostRef.current = null;
+    sessionMoments.current = [];
     setGameState(null);
     setQuestion(null);
     setView({ kind: "game", meta, html });
@@ -181,12 +196,33 @@ export default function App() {
       hostRef.current?.dispose();
       hostRef.current = null;
       if (!frame) return;
+      const v = viewRef.current;
+      const title = v.kind === "game" ? v.meta.title : "Game";
       const host = createGameHost({
         frame,
         app,
+        title,
         transport: () => roomRef.current.transport,
         onState: setGameState,
-        onDone: toLobby,
+        onMoment: (m) => {
+          sessionMoments.current.push(m);
+          console.info("[moment]", m.title, m.clip ? `(clip ${m.clip.length} frames)` : "");
+        },
+        // Game over: save the moments to the TV's memory book, then replay the best ones beside
+        // the leaderboard before going back to the lobby.
+        onDone: () => {
+          const moments = sessionMoments.current;
+          const scores = gameStateRef.current?.scores;
+          const top = scores ? Object.entries(scores).sort((a, b) => b[1] - a[1])[0] : undefined;
+          remember(moments, scores ? { at: Date.now(), game: title, winner: top?.[0], scores } : undefined);
+          sessionMoments.current = [];
+          if (!moments.length) return toLobby();
+          hostRef.current?.dispose();
+          hostRef.current = null;
+          setView({ kind: "recap", heading: `Best moments · ${title}`, moments: pickHighlights(moments, 5), scores, credits: moments.filter((m) => m.kind === "award") });
+          roomRef.current.transport?.sendScreen("*", { kind: "info", title: "Best moments!", body: "Look at the TV." });
+          if (app.can("voice.say")) void app.voice.say("Here are the best moments!");
+        },
       });
       hostRef.current = host;
       frame.addEventListener(
@@ -344,6 +380,19 @@ export default function App() {
     return { detail: "Started writing the game. It takes one to three minutes and starts by itself.", say: "Ooh, I like it. Give me a minute or two to build that." };
   });
 
+  // ---- Memories ----
+  useLittleTool("show_memories", () => {
+    const book = allMemories();
+    if (!book.moments.length) return { ok: false, detail: "No memories yet: play a game first." };
+    const wins: Record<string, number> = {};
+    for (const r of book.results) if (r.winner) wins[r.winner] = (wins[r.winner] ?? 0) + 1;
+    const moments = pickHighlights(book.moments, 8);
+    setView({ kind: "recap", heading: "Best moments on this TV", moments, scores: Object.keys(wins).length ? wins : undefined });
+    return {
+      detail: JSON.stringify({ moments: book.moments.length, games: book.results.length, showing: moments.map((m) => m.title), winsByPlayer: wins }),
+    };
+  });
+
   // ---- Camera check ----
   useLittleTool<{ on?: unknown; set?: unknown }>("camera_check", ({ on, set }) => {
     const turnOn = on === undefined ? true : on === true || on === "true";
@@ -398,6 +447,8 @@ export default function App() {
 
       {view.kind === "question" && question ? (
         <QuestionView question={question} players={activePlayers} />
+      ) : view.kind === "recap" ? (
+        <Recap key={view.heading + view.moments.length} heading={view.heading} moments={view.moments} scores={view.scores} credits={view.credits} onFinished={toLobby} />
       ) : view.kind === "camera" ? (
         <CameraCheck key={view.set} set={view.set} />
       ) : view.kind === "authoring" ? (
