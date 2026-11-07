@@ -298,4 +298,41 @@ across rejoin, and includes it in `join`/`rejoin`/`leave`, `room.players` and `G
 A join whose guid already belongs to a connected player in the room is still a new player, marked
 `sameDevice: true` (two tabs on one phone). It is a device key, not an account. "Forget me on this
 TV" on the join screen clears `lr.guid` and `lr.name.*` and makes a new guid; the Worker-side
-`DELETE /memories/:guid` is still to do.
+`DELETE /memories/:guid` (below) forgets the Worker side.
+
+## Memories
+
+The host's memory book (tv/src/game/memories.ts) posted to the Worker after a game, filed per player
+guid and per crew so games and the authoring runner can call back to earlier play (PLAN.md
+"Memories"; types `Moment`, `ClipFrame`, `GameResult`, `MemoriesPost`, `MemoriesResponse` in
+shared/protocol.ts; code `src/memories.mjs`). CORS `*` like `/games`.
+
+| Route | Body / query | Answer |
+|---|---|---|
+| `POST /memories` | `{ tvId?, room, hostToken, game, at, moments: Moment[], result?: GameResult, players?: [{ guid, name }] }` | 200 `{ ok, game, moments, clips, players, crew }`. 403 unless `hostToken` is the room's current token (the Room DO answers an internal `/verify-token`); so post before the room closes (60 s after the TV leaves). 400 for a bad code, missing `game`/`at`, non-array `moments`; 413 over 8 MB. Re-posting the same `room`+`at` replaces the game file and does not count twice. |
+| `GET /memories?guids=a,b,c` | up to 24 guids | `{ players: { [guid]: { names (≤5, newest first), games, lastSeen, awards: [{ title, game, at }], moments (≤10, no clips), results (≤5) } }, crews: [{ guids, games, moments (≤10) }] }`. Unknown guids are absent. Crews: the full known set and every pair among the first 6 (≤15 pairs), when that exact group has a crew file. |
+| `GET /memories/:guid` | | That guid's index (debug); 404 if none. |
+| `DELETE /memories/:guid` | | Forget a player (no auth beyond the guid, which is a device secret): deletes the index and every crew file that includes the guid, and scrubs the guid and its parallel display name (and its `scores` entry and `winner`) from the game files and co-players' indexes. 200 `{ ok, deleted: { guid, games, crews, players } }`; 404 if unknown. Free-text titles/captions that mention the name are not rewritten. |
+
+Each moment's `playerGuids` is parallel to `players`; `crew` is the sorted guids of everyone in the
+room, `room` the code (the Worker fills both from the post when a moment lacks them). Guids follow
+the relay's rule (8 to 64 `[A-Za-z0-9-]`); others are dropped.
+
+R2 layout (bucket `GAMES`):
+
+| Key | Content |
+|---|---|
+| `memories/game/<room>-<at>.json` | The whole post, cleaned, with every clip kept, plus `players: [{ guid, name }]`. |
+| `memories/guid/<guid>.json` | `{ guid, names, games, lastSeen, gameKeys, crewKeys, awards (≤30), moments (≤60, compact, no clips), results (≤30) }`, newest first. A guid gets the moments that name it, plus room-wide moments with no `playerGuids`. |
+| `memories/crew/<sha256 hex of sorted guids joined by ",">.json` | `{ guids, games, gameKeys, moments (≤60, compact), results (≤30) }` for rooms of 2 or more. |
+
+Writes are read-modify-write without locks: two posts for the same guid at the same instant can
+lose one update.
+
+**Runner injection.** `runner/room-memory.mjs`: when a job's `context.players` is
+`[{ id, name, guid? }]`, `run.mjs` adds "Players expected at start" and a "Room memory" block to
+TASK.md from `GET /memories?guids=` (2 s timeout, failure means "No history yet: this is their
+first game together."). skill/CONTRACT.md "Room memory" tells the agent how to use it.
+
+`test/memories.mjs` (in `pnpm test`) covers auth, the read-back, the crew, the runner block, and a
+delete with scrubbing.

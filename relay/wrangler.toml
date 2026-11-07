@@ -7,7 +7,7 @@ compatibility_date = "2026-10-01"
 [assets]
 directory = "../phone"
 binding = "ASSETS"
-run_worker_first = ["/host", "/join", "/health", "/rooms/*", "/games", "/games/*", "/author", "/author/*"]
+run_worker_first = ["/host", "/join", "/health", "/rooms/*", "/games", "/games/*", "/author", "/author/*", "/memories", "/memories/*"]
 
 # Game bundles: <id>/meta.json, <id>/tv.html, plus the bucket listing; authoring job state in jobs/<jobId>.json. `wrangler dev` simulates it locally.
 [[r2_buckets]]

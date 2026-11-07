@@ -80,3 +80,62 @@ export const CODE_LENGTH = 4;
 export const MAX_FRAME_BYTES = 256 * 1024; // camera snaps fit, nothing bigger
 export const TV_GRACE_MS = 60_000; // room survives a TV disconnect this long
 export const PLAYER_GRACE_MS = 5 * 60_000; // a phone can rejoin with its playerId this long
+
+// ---- Memories (PLAN.md "Memories"; relay/src/memories.mjs) ----
+// Mirrors the TV memory book (tv/src/game/memories.ts, localStorage "lr.memories.v1":
+// { moments: Moment[] newest first, max 60, only 20 keep clips; results: GameResult[] max 30 }),
+// plus guids so the Worker can file them per person and per crew.
+
+/** One skeleton frame: t is ms relative to the moment (negative, ~2.5 s window); per camera figure n
+ *  (1|2), pts = COCO-17 × [x, y] (34 numbers, 0..1, 3 decimals, -1,-1 when a point is missing). */
+export interface ClipFrame { t: number; people: { n: number; pts: number[] }[] }
+
+export interface Moment {
+  id: string; // "m_<base36 time + 4 chars>"
+  at: number; // epoch ms
+  game: string; // game title
+  title: string; // ≤ 120
+  caption?: string; // ≤ 200
+  players?: string[]; // display names, ≤ 6
+  playerGuids?: string[]; // parallel to players ("" where unknown)
+  kind?: "funny" | "win" | "fail" | "clutch" | "bot" | "award" | (string & {});
+  clip?: ClipFrame[]; // only in the game file on the Worker; never in index copies
+  crew?: string[]; // sorted guids of everyone in the room
+  room?: RoomCode;
+}
+
+export interface GameResult {
+  at: number;
+  game: string;
+  winner?: string; // display name
+  scores: Record<string, number>; // by display name
+  winnerGuid?: string;
+  scoresByGuid?: Record<string, number>;
+  crew?: string[];
+  room?: RoomCode;
+}
+
+/** POST /memories (auth: the room's hostToken). */
+export interface MemoriesPost {
+  tvId?: string;
+  room: RoomCode;
+  hostToken: string;
+  game: string;
+  at: number;
+  moments: Moment[];
+  result?: GameResult;
+  players?: { guid: string; name: string }[]; // optional: names for crew members with no moment
+}
+
+/** GET /memories?guids=a,b,c (unknown guids are absent from `players`). */
+export interface MemoriesResponse {
+  players: Record<string, {
+    names: string[]; // most recent first, ≤ 5
+    games: number;
+    lastSeen: number;
+    awards: { title: string; game: string; at: number }[];
+    moments: Moment[]; // no clips, newest first, ≤ 10
+    results: GameResult[]; // ≤ 5
+  }>;
+  crews: { guids: string[]; games: number; moments: Moment[] }[]; // subsets of size ≥ 2 that played as a room
+}

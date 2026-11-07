@@ -15,7 +15,7 @@ const port = 20000 + Math.floor(Math.random() * 1000);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "relay-games-"));
 const logPath = path.join(tmp, "wrangler.log");
 const logFd = fs.openSync(logPath, "w"); // never leave a child pipe undrained: it blocks the child
-const child = spawn(wranglerBin, ["dev", "--port", String(port), "--var", "AUTHOR_FAKE:1", "--var", `PUBLISH_TOKEN:${TOKEN}`,
+const child = spawn(wranglerBin, ["dev", "--port", String(port), "--var", "AUTHOR_FAKE:1", "--var", "AUTHOR_MODE:direct", "--var", `PUBLISH_TOKEN:${TOKEN}`,
   "--persist-to", path.join(tmp, "state")], { cwd: relayDir, stdio: ["ignore", logFd, logFd] });
 process.on("exit", (code) => {
   child.kill();

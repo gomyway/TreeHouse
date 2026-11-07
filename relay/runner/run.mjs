@@ -25,6 +25,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { createPiTracker } from "./pi-events.mjs";
+import { roomMemorySection } from "./room-memory.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RELAY_DIR = resolve(HERE, "..");
@@ -149,7 +150,10 @@ async function prepareJobDir(job, log) {
     id: "my-game", title: "", description: "", phases: [], minPlayers: 1, maxPlayers: 8,
   }, null, 2) + "\n");
   const ctx = job.context && Object.keys(job.context).length ? `\n\n## Context from the TV (JSON)\n\n\`\`\`json\n${JSON.stringify(job.context, null, 2).slice(0, 4000)}\n\`\`\`\n` : "";
-  writeFileSync(join(dir, "TASK.md"), `# Game request\n\n${job.prompt}\n${ctx}\n## Deliverable\n\nWrite \`meta.json\` and \`tv.html\` in this directory following \`skill/SKILL.md\` and \`skill/CONTRACT.md\`.\nDone means \`node harness/smoke.mjs\` prints SMOKE PASS and the game is fun on a TV.\n`);
+  // Players + "Room memory" from GET /memories (2 s timeout; empty or "No history yet" on failure).
+  const memory = await roomMemorySection(RELAY, job.context).catch(() => "");
+  if (memory) log("room memory block added to TASK.md");
+  writeFileSync(join(dir, "TASK.md"), `# Game request\n\n${job.prompt}\n${ctx}${memory ? `\n${memory}` : ""}\n## Deliverable\n\nWrite \`meta.json\` and \`tv.html\` in this directory following \`skill/SKILL.md\` and \`skill/CONTRACT.md\`.\nDone means \`node harness/smoke.mjs\` prints SMOKE PASS and the game is fun on a TV.\n`);
   return dir;
 }
 

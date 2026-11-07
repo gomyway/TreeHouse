@@ -81,6 +81,21 @@ Game → host (`window.parent.postMessage(msg, "*")`):
 - `{ type: "motion_start", actions?: string[], held?: string[], controls?: string[], maxPlayers?: number }`
   and `{ type: "motion_stop" }`: camera motion (below).
 
+## Room memory
+
+TASK.md may carry a "Players expected at start" list and a "Room memory" block: what the relay
+remembers about these people from earlier games (games played, awards, recent moments, moments of
+this exact group). Use it for flavour only: an opening callback, award titles that riff on an old
+one, `say` lines and reveals ("Bo, last time you froze like a statue"). The game must play exactly
+the same for people with no history, must not wait for anyone on the list (the `init` / `players`
+list is the truth), and names history only for players who are actually in the room. "No history
+yet" means a first game: say so warmly if you like, never invent a past.
+
+What you send becomes the next game's memory: the host saves every `moment` with the guids of the
+players it names, so put the real players' names in `players` (never "Player 1" or invented
+characters), and keep titles short and specific. `kind: "award"` moments become the credits roll
+and the player's award list next time.
+
 ## AI players and generated content
 
 You never call a model or any API yourself: the only way a game uses AI is the bridge (`ai`,

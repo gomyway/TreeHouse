@@ -186,13 +186,29 @@ the memory book. No second schema.
   tied to the typed name) and sends it on every join; the relay stamps it onto `Player` (`guid`), so
   the TV sees `{ id, name, guid }`. Hand-built and authored games put player ids in
   `moment.players` as today; the host resolves ids to guids when it saves.
-- **Harvest = Leo's memory book.** The host already saves moments and awards per household. Add two
-  fields when saving: `guids` (the players involved) and `crew` (the sorted guids of everyone in the
-  room). After `done`, the host also posts the game's saved moments to the Worker:
-  `POST /memories { tvId, gameId, title, at, crew, moments: [...] }` authenticated with the room's
-  `hostToken` (the relay already issued it). The Worker files them per guid and per crew in R2.
-- **Read back.** `GET /memories?guids=a,b,c` → per player: names used, games played, awards, the
-  last few moments; plus crew-level moments for any subset of those guids that played together.
+- **Harvest = Leo's memory book.** The host already saves moments and awards per household
+  (tv/src/game/memories.ts, localStorage `lr.memories.v1`, the source of truth):
+  `{ moments: Moment[] (newest first, max 60, only 20 keep clips), results: GameResult[] (max 30) }`.
+  - `Moment = { id ("m_<base36 time + 4 chars>"), at (epoch ms), game (title), title (≤120),
+    caption? (≤200), players?: string[] (display names, ≤6), kind?: "funny"|"win"|"fail"|"clutch"|"bot"|"award"
+    (free string), clip?: ClipFrame[] }`
+  - `ClipFrame = { t (ms relative to the moment, negative, ~2.5 s window), people: { n (camera
+    figure 1|2), pts: number[] (34 numbers, COCO-17 × [x,y], 0..1, 3 decimals, -1,-1 missing) }[] }`
+  - `GameResult = { at, game, winner?, scores: Record<name, number> }`
+  - Guid additions (agreed with Leo): `Moment` gets `playerGuids?: string[]` (parallel to `players`),
+    `crew: string[]` (sorted guids of the room) and `room` (code); `GameResult` gets `crew` and, when
+    known, `winnerGuid?` and `scoresByGuid?: Record<guid, number>`.
+
+  After `done`, the host posts the game's moments to the Worker:
+  `POST /memories { tvId?, room, hostToken, game, at, moments: Moment[], result?: GameResult }`,
+  authenticated with the room's `hostToken` (checked against the Room DO). The Worker keeps the whole
+  post (clips included) at `memories/game/<room>-<at>.json` and compact copies (no clips) per guid
+  (`memories/guid/<guid>.json`, 60 moments / 30 results) and per crew
+  (`memories/crew/<sha256 of sorted guids joined by ",">.json`, 60 moments). Types in
+  shared/protocol.ts; routes and layout in relay/README.md "Memories".
+- **Read back.** `GET /memories?guids=a,b,c` → `{ players: { [guid]: { names (≤5), games, lastSeen,
+  awards: [{ title, game, at }], moments (≤10), results (≤5) } }, crews: [{ guids, games, moments (≤10) }] }`;
+  crews are the full set and each pair (first 6 guids) that played together as a room.
 - **Authoring.** The TV's `create_game` sends `context.players: [{ id, name, guid }]`; the runner
   fetches their memories and writes a "Room memory" block into TASK.md (who wins, who got fooled,
   standing jokes), so the game opens with callbacks and names real history in its own moments.
@@ -200,7 +216,8 @@ the memory book. No second schema.
   so the Little agent narrates with it, and answers a `recall` bridge message
   (game → host `{ type: "recall", players?: string[] }`, host → game `{ type: "recalled", memories }`)
   for reveal lines mid-game. `show_memories` keeps replaying the all-time best on this TV.
-- **Consent.** "Forget me" on the phone's join screen deletes that guid's records on the Worker and
+- **Consent.** "Forget me" on the phone's join screen deletes that guid's records on the Worker
+  (`DELETE /memories/:guid`: index and crew files deleted, game files and co-players scrubbed) and
   asks the host to drop it from the memory book; memories only surface when the person is in the room.
 
 Ownership: guid + relay stamping + `/memories` store + runner injection on Nelson's side; saving

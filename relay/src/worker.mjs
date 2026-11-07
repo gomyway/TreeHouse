@@ -1,9 +1,10 @@
 // Relay on Cloudflare Workers. One Durable Object per room (keyed by its 4-letter code) holds the
 // TV socket and the phone sockets and routes frames between them. No game logic lives here.
 // The same Worker also serves game storage (/games, ./games.mjs) and the authoring manager
-// (/author, ./author.mjs; its jobs run in the AuthorJob Durable Object). Protocol: ../../shared/protocol.ts; bundle contract: ../../PLAN.md
+// (/author, ./author.mjs; its jobs run in the AuthorJob Durable Object) and memories (/memories, ./memories.mjs). Protocol: ../../shared/protocol.ts; bundle contract: ../../PLAN.md
 import { handleGames } from "./games.mjs";
 import { handleAuthor } from "./author.mjs";
+import { handleMemories } from "./memories.mjs";
 export { AuthorJob } from "./author.mjs";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I or O
@@ -33,6 +34,7 @@ export default {
     if (url.pathname === "/health") return json({ ok: true });
     if (url.pathname === "/author" || url.pathname.startsWith("/author/")) return handleAuthor(req, env, url);
     if (url.pathname === "/games" || url.pathname.startsWith("/games/")) return handleGames(req, env, url);
+    if (url.pathname === "/memories" || url.pathname.startsWith("/memories/")) return handleMemories(req, env, url);
     if (url.pathname.startsWith("/rooms/")) { // debug: GET /rooms/ABCD
       const code = url.pathname.slice(7).toUpperCase();
       if (!CODE_RE.test(code)) return json({ error: "bad code" }, 400);
@@ -91,6 +93,8 @@ export class Room {
     await this.load();
     const url = new URL(req.url);
     if (url.pathname === "/status") return json({ code: this.code, tv: Boolean(this.tvSocket()), players: this.playerList() });
+    // Internal (only memories.mjs reaches it): does this token own the room? POST /memories auth.
+    if (url.pathname === "/verify-token") return json({ hostOk: Boolean(this.hostToken) && url.searchParams.get("token") === this.hostToken });
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("expected websocket", { status: 426 });
     if (url.pathname === "/host" && this.tvSocket() && url.searchParams.get("token") !== this.hostToken)
       return new Response("room busy", { status: 409 }); // the worker tries another code
