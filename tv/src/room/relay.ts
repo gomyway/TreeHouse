@@ -40,6 +40,7 @@ export function connectRelay(
   let closed = false;
   let attempt = 0;
   let retry: number | undefined;
+  let heartbeat: number | undefined;
   const outbox: string[] = [];
 
   const send = (msg: TvToRelay) => {
@@ -87,8 +88,15 @@ export function connectRelay(
     sock.onopen = () => {
       attempt = 0;
       while (outbox.length) sock.send(outbox.shift()!);
+      // Carrier NAT and idle proxies kill a silent socket in 30–60 s; the relay answers a bare
+      // "ping" text frame with "pong" without waking the room.
+      clearInterval(heartbeat);
+      heartbeat = window.setInterval(() => {
+        if (sock.readyState === WebSocket.OPEN) sock.send("ping");
+      }, 20_000);
     };
     sock.onmessage = (ev) => {
+      if (ev.data === "pong") return;
       try {
         handle(JSON.parse(String(ev.data)) as RelayToTv);
       } catch {
@@ -96,7 +104,9 @@ export function connectRelay(
       }
     };
     sock.onclose = () => {
-      if (ws !== sock || closed) return;
+      if (ws !== sock) return;
+      clearInterval(heartbeat);
+      if (closed) return;
       handlers.onStatus("reconnecting");
       // Reattach quickly: the relay holds the room for TV_GRACE_MS after the TV drops.
       const delay = Math.min(1000 * 2 ** attempt, 8000);
@@ -132,6 +142,7 @@ export function connectRelay(
     close() {
       closed = true;
       clearTimeout(retry);
+      clearInterval(heartbeat);
       ws?.close();
       handlers.onStatus("offline");
     },
