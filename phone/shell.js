@@ -8,6 +8,34 @@ const main = inBrowser ? $("main") : null;
 const qs = new URLSearchParams(inBrowser ? location.search : "");
 const safeGet = (store, k) => { try { return store.getItem(k); } catch { return null; } };
 const safeSet = (store, k, v) => { try { store.setItem(k, v); } catch {} };
+// Per-device guid: generated once, kept in localStorage as `lr.guid`, sent on every /join so the TV can
+// tie moments to the same person across rooms. Not an account and never derived from the name.
+// Without storage (private mode, blocked) it lives for this page load only.
+const newGuid = () => {
+  try { if (crypto.randomUUID) return crypto.randomUUID(); } catch {}
+  const b = new Uint8Array(16);
+  try { crypto.getRandomValues(b); } catch { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+};
+let sessionGuid = null;
+function deviceGuid() {
+  if (!inBrowser) return sessionGuid ??= newGuid();
+  const saved = safeGet(localStorage, "lr.guid");
+  if (saved) return saved;
+  const g = sessionGuid ?? newGuid();
+  sessionGuid = g; safeSet(localStorage, "lr.guid", g);
+  return g;
+}
+// "Forget me on this TV": drop the guid and every remembered room name, start over as a new face.
+// TODO: also call the Worker's DELETE /memories/:guid (with the old guid) once that route exists.
+function forgetMe() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k === "lr.guid" || k?.startsWith("lr.name.")) keys.push(k); }
+    keys.forEach((k) => localStorage.removeItem(k));
+  } catch {}
+  sessionGuid = null; deviceGuid();
+}
 const wsBase = inBrowser ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host : "";
 
 let ws = null, code = null, player = null, retry = 0, closedByTv = false;
@@ -26,7 +54,10 @@ function renderJoin(msg) {
     <p>${msg ?? "Type the code on the screen."}</p>
     <label class="field">Room code on the TV<input id="code" class="code" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="ABCD" value="${esc(prefillCode)}" /></label>
     <label class="field">Your name<input id="name" maxlength="24" autocomplete="off" autocapitalize="words" placeholder="e.g. Ana" value="${esc(savedName)}" /></label>
-    <button id="go">Join</button>`;
+    <button id="go">Join</button>
+    <a id="forget" class="forget" href="#">Forget me on this TV</a>`;
+    try { for (const k of Object.keys(sessionStorage)) if (k.startsWith("lr.player.")) sessionStorage.removeItem(k); } catch {}
+  $("forget").onclick = (e) => { e.preventDefault(); forgetMe(); $("name").value = ""; toast("Forgotten. You are a new face now."); };
   const go = () => {
     const c = $("code").value.trim().toUpperCase(), n = $("name").value.trim();
     if (c.length !== 4) return toast("Four letters.");
@@ -50,7 +81,7 @@ function connect(c, name) {
   if (c !== code) { unacked.clear(); clearPending(); } // never replay one room's answers into another
   code = c; closedByTv = false;
   const prev = safeGet(sessionStorage, "lr.player." + code);
-  const url = `${wsBase}/join?code=${code}&name=${encodeURIComponent(name)}${prev ? "&player=" + prev : ""}`;
+  const url = `${wsBase}/join?code=${code}&name=${encodeURIComponent(name)}${prev ? "&player=" + prev : ""}&guid=${encodeURIComponent(deviceGuid())}`;
   if (ws) { try { ws.onclose = null; ws.close(); } catch {} }
   clearTimeout(reconnectTimer);
   lastName = name;

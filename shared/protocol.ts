@@ -9,6 +9,13 @@ export interface Player {
   id: PlayerId;
   name: string;
   connected: boolean;
+  // Per-device key the phone generates once and keeps in localStorage (`lr.guid`). Not an account and
+  // not tied to the typed name: it only lets the host resolve moments to the same person across rooms
+  // and days (PLAN.md "Memories"). Absent when the phone sent none or an invalid one (8-64 [A-Za-z0-9-]).
+  guid?: string;
+  // True when this player joined while another connected player in the room had the same guid
+  // (two tabs on one phone). Still a separate player.
+  sameDevice?: boolean;
 }
 
 // ---- Phone screens (declarative; the shell renders them) ----

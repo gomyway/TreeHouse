@@ -1,5 +1,7 @@
 // Headless end-to-end against the relay: a fake TV opens a room, a fake phone joins, frames route both
 // ways, rejoin works, kick works, a TV drop keeps the room and a token reattach restores it.
+// Player guids: carried on join/rejoin and /rooms/:code, kept across rejoin, sameDevice on a twin tab,
+// invalid ones dropped.
 // Inputs carrying `seq` are acked to the phone (delivered:false while the TV is away).
 // Targets RELAY_URL (ws://host:port) when set, otherwise starts `wrangler dev` on a random port.
 import { spawn } from "node:child_process";
@@ -39,9 +41,34 @@ if (!/^[A-HJ-NP-Z]{4}$/.test(room.code) || !room.hostToken) fail(`bad room ${JSO
 // On Workers the Room DO notifies the TV before its 101 reaches the phone, so the TV-side frame can
 // land before the phone's `open` fires: listen on the TV before opening the phone socket.
 const joinP = next(tv, "join");
-const phone = await open(`/join?code=${room.code.toLowerCase()}&name=Ana`);
+const GUID = "0f3c9a2e-guid-ana-1234";
+const phone = await open(`/join?code=${room.code.toLowerCase()}&name=Ana&guid=${GUID}`);
 const [joined, joinEv] = await Promise.all([next(phone, "joined"), joinP]);
 if (joined.player.name !== "Ana" || joinEv.player.id !== joined.player.id) fail("join mismatch"); ok("phone joined, tv notified");
+if (joinEv.player.guid !== GUID || joinEv.player.sameDevice) fail(`join guid ${JSON.stringify(joinEv.player)}`); ok("tv join frame carries guid");
+const http = base.replace(/^ws/, "http");
+const st1 = await fetch(http + `/rooms/${room.code}`).then((r) => r.json());
+if (st1.players.find((p) => p.id === joined.player.id)?.guid !== GUID) fail(`status guid ${JSON.stringify(st1)}`); ok("/rooms/:code carries guid");
+
+// Same guid while Ana is connected (two tabs on one phone): a new player, flagged sameDevice.
+const twinP = next(tv, "join");
+const twin = await open(`/join?code=${room.code}&name=Ana2&guid=${GUID}`);
+const [twinJ, twinEv] = await Promise.all([next(twin, "joined"), twinP]);
+if (twinJ.player.id === joined.player.id || twinEv.player.guid !== GUID || twinEv.player.sameDevice !== true) fail(`twin ${JSON.stringify(twinEv)}`); ok("second connected join with same guid → new player, sameDevice");
+const twinLeave = next(tv, "leave"); twin.close(); await twinLeave;
+send(tv, { type: "kick", to: twinJ.player.id });
+
+// Invalid guid is dropped.
+const oddP = next(tv, "join");
+const odd = await open(`/join?code=${room.code}&name=Odd&guid=${encodeURIComponent("bad guid!<>")}`);
+const oddEv = (await Promise.all([next(odd, "joined"), oddP]))[1];
+if ("guid" in oddEv.player) fail(`invalid guid kept ${JSON.stringify(oddEv.player)}`);
+const shortP = next(tv, "leave"); odd.close(); await shortP;
+const oddId = oddEv.player.id;
+const short = await open(`/join?code=${room.code}&name=Sh&guid=abc`); const shortJ = await next(short, "joined");
+if ("guid" in shortJ.player) fail("short guid kept"); ok("invalid guids dropped");
+const shortLeave = next(tv, "leave"); short.close(); await shortLeave;
+send(tv, { type: "kick", to: oddId }); send(tv, { type: "kick", to: shortJ.player.id });
 
 send(tv, { type: "screen", to: joined.player.id, screen: { kind: "buttons", items: [{ id: "a", label: "A" }] } });
 if ((await next(phone, "screen")).screen.kind !== "buttons") fail("screen not routed"); ok("tv → phone screen");
@@ -61,9 +88,10 @@ if ((await next(phone, "state")).payload.round !== 1) fail("broadcast state"); o
 phone.close(); if ((await next(tv, "leave")).player.id !== joined.player.id) fail("leave"); ok("leave on disconnect");
 
 const rejoinP = next(tv, "rejoin");
-const phone2 = await open(`/join?code=${room.code}&player=${joined.player.id}`);
+const phone2 = await open(`/join?code=${room.code}&player=${joined.player.id}&guid=another-guid-9999`);
 const [j2, rj] = await Promise.all([next(phone2, "joined"), rejoinP]);
 if (j2.player.id !== joined.player.id || rj.player.name !== "Ana") fail("rejoin"); ok("rejoin keeps id and name");
+if (rj.player.guid !== GUID) fail(`rejoin guid ${JSON.stringify(rj.player)}`); ok("rejoin keeps the original guid");
 
 const bad = await open("/join?code=ZZZZ");
 if ((await next(bad, "error")).message !== "no such room") fail("no-room error"); ok("unknown code rejected with a readable error");

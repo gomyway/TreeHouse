@@ -21,7 +21,11 @@ const newCode = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(4));
   return [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
 };
-const pub = (p) => ({ id: p.id, name: p.name, connected: p.connected });
+const GUID_RE = /^[A-Za-z0-9-]{8,64}$/; // the phone's per-device key (protocol.ts Player.guid)
+const pub = (p) => ({
+  id: p.id, name: p.name, connected: p.connected,
+  ...(p.guid ? { guid: p.guid } : {}), ...(p.sameDevice ? { sameDevice: true } : {}),
+});
 
 export default {
   async fetch(req, env) {
@@ -56,7 +60,7 @@ export default {
 export class Room {
   constructor(ctx, env) {
     this.ctx = ctx; this.env = env;
-    this.code = null; this.hostToken = null; this.players = null; // Map id -> {id,name,connected,leftAt}
+    this.code = null; this.hostToken = null; this.players = null; // Map id -> {id,name,connected,leftAt,guid?,sameDevice?}
     // Keep-alive: clients send the literal "ping" every ~20 s (carrier NAT drops silent sockets);
     // the runtime answers "pong" without waking this object.
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
@@ -120,7 +124,14 @@ export class Room {
     const wantId = url.searchParams.get("player");
     let player = wantId ? this.players.get(wantId) : null;
     const rejoin = Boolean(player);
-    if (!player) { player = { id: crypto.randomUUID().slice(0, 8), name, connected: false, leftAt: null }; this.players.set(player.id, player); }
+    const rawGuid = url.searchParams.get("guid");
+    const guid = rawGuid && GUID_RE.test(rawGuid) ? rawGuid : null; // invalid: ignored
+    if (!player) {
+      player = { id: crypto.randomUUID().slice(0, 8), name, connected: false, leftAt: null, guid };
+      // Same guid already on a connected player here (two tabs on one phone): still a new player, flagged.
+      if (guid && [...this.players.values()].some((o) => o.connected && o.guid === guid)) player.sameDevice = true;
+      this.players.set(player.id, player);
+    } else if (!player.guid && guid) player.guid = guid; // a rejoin never replaces an existing guid
     for (const old of this.phoneSockets(player.id)) { try { old.close(4000, "replaced"); } catch {} }
     player.connected = true; player.leftAt = null;
     this.ctx.acceptWebSocket(ws, ["phone", "p:" + player.id]);

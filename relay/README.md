@@ -288,3 +288,14 @@ meta fields, external src/href, fetch/XHR/WebSocket/EventSource/import()/storage
 `screen` within 5 s of init, uncaught errors, malformed messages or deadlines, no input screen,
 stalling before 2 rounds (or `done`), silence after an input. `--verbose` prints every message.
 Both `games/sample` and `games/whos-the-bot` pass.
+
+### Player guid
+
+The phone keeps a per-device `guid` in localStorage (`lr.guid`, generated once; session-only if
+storage is blocked) and sends it as `&guid=` on every `/join`. The relay keeps it only when it is
+8–64 chars of `[A-Za-z0-9-]` (otherwise ignored), stores it on the player record, keeps the original
+across rejoin, and includes it in `join`/`rejoin`/`leave`, `room.players` and `GET /rooms/:code`.
+A join whose guid already belongs to a connected player in the room is still a new player, marked
+`sameDevice: true` (two tabs on one phone). It is a device key, not an account. "Forget me on this
+TV" on the join screen clears `lr.guid` and `lr.name.*` and makes a new guid; the Worker-side
+`DELETE /memories/:guid` is still to do.
