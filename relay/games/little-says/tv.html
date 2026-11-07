@@ -22,6 +22,8 @@
   .says { font-size: 56px; font-weight: 800; color: var(--gold); min-height: 68px; letter-spacing: -1px; }
   .says.trap { visibility: hidden; }
   .do { font-size: 150px; font-weight: 900; letter-spacing: -4px; line-height: 1; }
+  .do.listen { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(1.12); opacity: .7; } }
   .window { height: 14px; margin: 26px auto 0; width: 900px; border-radius: 7px; background: var(--line); overflow: hidden; }
   .window i { display: block; height: 100%; width: 0; background: var(--gold); }
   .window.run i { animation: fill var(--w) linear forwards; }
@@ -285,8 +287,13 @@ function render(windowMsArg) {
   if (phase === "lanes") mid = `<div class="command"><div class="says">One or two players · left and right</div><div class="do" style="font-size:96px">${slotState.includes("active") ? "Get ready…" : "Stand in front of the TV"}</div></div>`;
   else if (phase === "calibrate") mid = `<div class="command"><div class="says">Warm up</div><div class="do">LEFT ARM UP</div></div>`;
   else if (current) {
+    // Voice only: the command is never shown while it can still be obeyed, or reading it would
+    // give it away. Once judged, show what it was (and whether it was a trap) for the audience.
     const w = windowMsArg ?? 0;
-    mid = `<div class="command"><div class="says ${current.trap ? "trap" : ""}">Little says…</div><div class="do">${current.move.show}</div>
+    const judged = verdicts.some(Boolean);
+    mid = judged
+      ? `<div class="command"><div class="says">${current.trap ? "Trap! Nobody said Little says:" : "Little says:"}</div><div class="do" style="color:${current.trap ? "var(--bad)" : "var(--ink)"}">${current.move.show}</div></div>`
+      : `<div class="command"><div class="says">Listen…</div><div class="do listen">👂</div>
       <div class="window ${windowMsArg ? "run" : ""}" style="--w:${w}ms"><i></i></div></div>`;
   } else mid = `<div class="command"><div class="says">Only move when Little says</div><div class="do">ARMS DOWN</div></div>`;
   app.innerHTML = head + mid + `<div class="lanes">${laneHtml(0)}${laneHtml(1)}</div>`;
