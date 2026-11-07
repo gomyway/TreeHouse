@@ -41,6 +41,7 @@ enabled = true
 AUTHOR_BASE_URL = "https://openrouter.ai/api/v1"
 AUTHOR_MODEL = "anthropic/claude-opus-5.5"
 AUTHOR_MAX_TOKENS = "16000"
+AUTHOR_DEADLINE_MS = "240000"
 # "direct": POST /author calls the model from the AuthorJob alarm. "runner": POST /author only queues
 # the job; a Mac runner claims it (POST /author/claim) and publishes the bundle. Runner routes need
 # the PUBLISH_TOKEN secret (pnpm exec wrangler secret put PUBLISH_TOKEN).

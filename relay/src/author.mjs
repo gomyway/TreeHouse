@@ -28,7 +28,8 @@ const isOpenRouter = (env) => /openrouter\.ai/.test(env.AUTHOR_BASE_URL || "");
 const DEFAULT_MODEL = "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct";
 const DEFAULT_MAX_TOKENS = 16000;
 const DEFAULT_TEMPERATURE = 0.4;
-const DEADLINE_MS = 90_000; // per attempt; with the one retry a job can run about 3 minutes
+const DEFAULT_DEADLINE_MS = 240_000; // Opus writes a whole game in one shot; 90 s was too short
+const deadlineMs = (env) => Number(env?.AUTHOR_DEADLINE_MS) > 0 ? Number(env.AUTHOR_DEADLINE_MS) : DEFAULT_DEADLINE_MS; // per attempt; with the one retry a job can run about 3 minutes
 const FAKE_DELAY_MS = 300;
 const JOB_RE = /^[a-z0-9]{12}$/;
 const MAX_PROMPT_CHARS = 4000;
@@ -192,7 +193,7 @@ async function generate(env, prompt, context, onAttempt) {
       ...(isOpenRouter(env) ? { provider: { sort: "throughput" } } : {}),
     };
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), DEADLINE_MS);
+    const timer = setTimeout(() => ctrl.abort(), deadlineMs(env));
     let data;
     try {
       const res = await fetch(chatUrl(env), {
@@ -205,7 +206,7 @@ async function generate(env, prompt, context, onAttempt) {
       data = await res.json();
     } catch (e) {
       if (!ctrl.signal.aborted) throw e;
-      lastErrors = [`attempt ${attempt} timed out after ${DEADLINE_MS / 1000} s`];
+      lastErrors = [`attempt ${attempt} timed out after ${deadlineMs(env) / 1000} s`];
       userText = ask;
       continue;
     } finally {
