@@ -222,6 +222,7 @@ function runPass(aiOk) {
           for (const pid of targets) if (PLAYERS.some((p) => p.id === pid) || pid === LATE.id) answerScreen(pid, m.screen);
           break;
         }
+        case "moment": counts.moment = (counts.moment || 0) + 1; break;
         case "say": stats.say++; if (typeof m.text !== "string") pfail("say.text must be a string"); break;
         case "ask": stats.ask++; if (!["gyro", "camera", "mic"].includes(m.kind)) pfail(`ask.kind must be gyro|camera|mic, got ${JSON.stringify(m.kind)}`); break;
         case "play": stats.play++; if (m.url && !/^data:/.test(m.url)) pfail("play.url must be a data: URL"); break;

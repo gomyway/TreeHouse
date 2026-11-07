@@ -133,6 +133,7 @@ TV side, through the Little SDK capabilities declared in the manifest:
   - `{ type: "screen", to, screen }`, `{ type: "ask", to, kind, on, hz }`, `{ type: "play", to, text|url }` (forwarded to the relay as-is)
   - `{ type: "say", text, id?, interrupt? }` (the host speaks it; with an `id`, the host answers `{ type: "said", id, ok, interrupted? }` when playback ends, so a game can open a reaction window only after the line is spoken)
   - `{ type: "state", summary: string, phase: string, scores?: Record<name, number> }` (the host renders it as `data-little` readouts so the agent can narrate and answer questions)
+  - `{ type: "moment", title, caption?, players?: string[], kind?: "funny" | "win" | "fail" | "clutch" | "bot" | "award", clip?: "pose" }` (fire and forget, no reply; send a few per game, about 3 moments and 2 to 4 `award`s). The host keeps them in the TV's memory book (localStorage per household profile) and after `done` shows "Best moments" beside the final leaderboard, replays the last ~2.5 s of stick figures for `clip: "pose"` in camera games, then a "Starring <name> as <award title>" credits roll. The agent tool `show_memories` replays the all-time best on this TV.
   - `{ type: "done" }` (back to lobby)
 
   Camera, through the host's `sense.motion` (Leo's Claude, 13:56; camera games are 2 players max):

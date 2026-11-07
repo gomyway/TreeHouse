@@ -44,6 +44,7 @@ Game → host (`window.parent.postMessage(msg, "*")`):
   every meaningful change. `summary` is plain English the agent reads to narrate and to answer
   "who's winning?"; `phase` is one of `meta.phases`.
 - `{ type: "done" }`: the game is over; the host returns to the lobby. Post it a few seconds after
+- {type:"moment", title, caption?, players?: string[], kind?: "funny"|"win"|"fail"|"clutch"|"bot"|"award", clip?: "pose"}: fire and forget, no reply. Send about 3 moments and 2 to 4 kind:"award" moments per game (one award per standout player, title like "Most Robotic Human"); the TV builds the end-of-game recap and credits from them.
   showing final results.
 - `{ type: "ai", id: string, instruction: string, context?: any, schema?: JSONSchema }`: the host runs
   a language model for you (the Little SDK's `app.compose`) and answers with `ai_result`. `data` is
