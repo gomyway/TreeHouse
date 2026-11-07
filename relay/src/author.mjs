@@ -1,6 +1,8 @@
 // Authoring manager. A coding model on Fireworks AI writes a game bundle (meta.json + tv.html) against the contract in
 // ../../PLAN.md "Game bundle"; we validate it, retry once with the errors fed back, and store it in R2.
-// Plain fetch to Fireworks' OpenAI-compatible chat completions API (no SDK); key in FIREWORKS_API_KEY.
+// Plain fetch to an OpenAI-compatible chat completions API (no SDK). Default Fireworks; set
+// AUTHOR_BASE_URL to use OpenRouter (https://openrouter.ai/api/v1) or any compatible host. The key is
+// AUTHOR_API_KEY, else FIREWORKS_API_KEY, else OPENROUTER_API_KEY.
 // AUTHOR_FAKE skips the API and stores the sample (after a short delay, so the job states show).
 //   POST /author { prompt, context? }        → 202 { jobId, status: "queued" }; the AuthorJob Durable
 //                                              Object runs it and writes jobs/<jobId>.json to R2.
@@ -15,7 +17,10 @@
 // is sent, and one attempt may take 90 s. An alarm handler gets 15 minutes of wall clock.
 import { SAMPLE, CORS, cjson, newId, putGame, checkMeta, ID_RE } from "./games.mjs";
 
-const FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
+const DEFAULT_BASE_URL = "https://api.fireworks.ai/inference/v1";
+const chatUrl = (env) => `${(env.AUTHOR_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "")}/chat/completions`;
+const apiKey = (env) => env.AUTHOR_API_KEY || env.FIREWORKS_API_KEY || env.OPENROUTER_API_KEY || "";
+const isOpenRouter = (env) => /openrouter\.ai/.test(env.AUTHOR_BASE_URL || "");
 // Override with env AUTHOR_MODEL. Alternatives (verify the exact id with
 // `curl https://api.fireworks.ai/inference/v1/models -H "Authorization: Bearer $FIREWORKS_API_KEY"`):
 //   accounts/fireworks/models/kimi-k2-instruct-0905   (Kimi K2 instruct)
@@ -188,9 +193,9 @@ async function generate(env, prompt, context, onAttempt) {
     const timer = setTimeout(() => ctrl.abort(), DEADLINE_MS);
     let data;
     try {
-      const res = await fetch(FIREWORKS_URL, {
+      const res = await fetch(chatUrl(env), {
         method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${env.FIREWORKS_API_KEY}` },
+        headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${apiKey(env)}`, ...(isOpenRouter(env) ? { "http-referer": "https://little-redwood-relay.nasloon.workers.dev", "x-title": "little-redwood author" } : {}) },
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });
@@ -429,7 +434,7 @@ export async function handleAuthor(req, env, url) {
     return cjson({ jobId: job.jobId, status: "queued" }, 202);
   }
 
-  if (!env.AUTHOR_FAKE && !env.FIREWORKS_API_KEY) return cjson({ error: "FIREWORKS_API_KEY is not set (wrangler secret put FIREWORKS_API_KEY, or .dev.vars locally)" }, 500);
+  if (!env.AUTHOR_FAKE && !apiKey(env)) return cjson({ error: "no authoring API key: set AUTHOR_API_KEY, FIREWORKS_API_KEY or OPENROUTER_API_KEY (wrangler secret put …, or .dev.vars locally)" }, 500);
 
   if (wait) { // synchronous
     try { return cjson(await author(env, prompt, context)); } catch (e) { return cjson({ error: String(e?.message ?? e) }, 502); }
