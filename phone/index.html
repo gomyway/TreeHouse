@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0c0b0a" />
+  <title>little-redwood · phone</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0c0b0a; --fg: #f2efe9; --mute: #9a948c; --line: #2a2724; --accent: #ffb454; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 18px/1.4 ui-sans-serif, system-ui, sans-serif; min-height: 100dvh; display: flex; flex-direction: column; -webkit-user-select: none; user-select: none; }
+    header { display: flex; justify-content: space-between; padding: 12px 16px; font-size: 14px; color: var(--mute); border-bottom: 1px solid var(--line); }
+    header b { color: var(--fg); letter-spacing: 0.15em; }
+    main { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 20px 16px; padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+    h1 { font-size: 26px; margin: 0; }
+    p { margin: 0; color: var(--mute); }
+    input, button, textarea { font: inherit; color: inherit; width: 100%; border-radius: 14px; border: 1px solid var(--line); background: #171513; padding: 16px; }
+    input.code { text-transform: uppercase; letter-spacing: 0.4em; text-align: center; font-size: 28px; }
+    button { background: var(--accent); color: #1a1105; border: 0; font-weight: 700; min-height: 60px; }
+    button.ghost { background: #171513; color: var(--fg); border: 1px solid var(--line); }
+    button:active { transform: scale(0.98); }
+    .pad { flex: 1; min-height: 50vh; border: 1px dashed var(--line); border-radius: 20px; display: grid; place-items: center; color: var(--mute); touch-action: none; position: relative; }
+    .pad .dot { position: absolute; width: 56px; height: 56px; border-radius: 50%; background: var(--accent); transform: translate(-50%, -50%); left: 50%; top: 50%; }
+    iframe { flex: 1; border: 0; border-radius: 14px; background: #fff; min-height: 60vh; }
+    video { width: 100%; border-radius: 14px; background: #000; }
+    .toast { position: fixed; left: 16px; right: 16px; bottom: 16px; padding: 12px 16px; border-radius: 12px; background: #2a2724; font-size: 14px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header><span id="hdr-code">—</span><span id="hdr-name"></span><span id="hdr-tv">offline</span></header>
+  <main id="main"></main>
+  <div id="toast" class="toast hidden"></div>
+  <script type="module" src="./shell.js"></script>
+</body>
+</html>
