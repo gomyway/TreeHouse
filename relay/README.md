@@ -230,3 +230,61 @@ Direct-mode jobs carry `"mode": "direct"` and no `runner`/`claimedAt`/`log`.
 
 `test/author.mjs` runs a second `wrangler dev --var AUTHOR_MODE:runner --var PUBLISH_TOKEN:testtoken`
 for these routes, including a reclaim.
+
+## The authoring runner (`runner/`)
+
+The Mac side of runner mode. `runner/run.mjs` claims jobs from the queue above, runs the `pi` coding
+agent inside a small Docker image to write and test the bundle, re-runs the smoke harness on the
+host as the gate, and completes the job with `{ id, meta, html }` (which publishes the bundle) or
+`{ error }`.
+
+```sh
+cd relay
+(cd runner && npm install)          # jsdom for the host-side harness, once
+pnpm runner                         # = node runner/run.mjs; Ctrl-C completes the current job as an error
+```
+
+The first run builds the image if it is missing (`docker build -t little-redwood-author relay/runner`,
+about 20 s, 565 MB: node:22-slim + `@earendil-works/pi-coding-agent@0.80.3` + jsdom, non-root user
+`node`, workdir `/job`), and starts Docker Desktop if the daemon is down.
+
+| Flag | Effect |
+|---|---|
+| `--once` | Handle one job, then exit (status 0 when it published). |
+| `--dry` | Skip pi and Docker: the sample bundle is the result. Tests claim → progress → harness → complete. |
+| `--local "prompt"` | No relay: author into `runner/jobs/local-<time>/` and stop (nothing is published). |
+
+| Env | Default |
+|---|---|
+| `RELAY_URL` | `https://little-redwood-relay.nasloon.workers.dev` |
+| `PUBLISH_TOKEN` | from `relay/.dev.vars` when unset |
+| `FIREWORKS_API_KEY` | from `relay/.dev.vars` when unset; passed to the container as env, never written to disk or baked into the image |
+| `AUTHOR_MODEL` | `accounts/fireworks/models/gpt-oss-120b` (only the process env; `.dev.vars`' `AUTHOR_MODEL` is the Worker's) |
+| `AUTHOR_THINKING` | `low` |
+| `AUTHOR_TIMEOUT_S` | `360` (the container is killed after this; the Worker reclaims at 8 min) |
+| `RUNNER` | hostname |
+| `AUTHOR_IMAGE` | `little-redwood-author` |
+
+Per job it makes `runner/jobs/<jobId>/` with `TASK.md` (the prompt and context), a `meta.json`
+template, `skill/` (`SKILL.md` + `CONTRACT.md`, the bundle contract written for a coding agent),
+`harness/smoke.mjs`, and `reference/` (the sample and Who's the Bot, fetched from the relay, local
+copies as fallback). Only that directory is mounted, at `/job`; the container gets
+`--memory 2g --cpus 2`, default bridge networking (it needs Fireworks), and runs
+`pi -p --no-session --offline --no-context-files --skill /job/skill --provider fireworks --model $AUTHOR_MODEL --thinking low "<task>"`.
+pi's Fireworks provider is built in, so no models.json is mounted. Progress notes go to the job's
+`log` (claimed, agent started, agent working every 30 s, agent finished, harness PASS/FAIL,
+publishing); the full transcript is in `runner/logs/<jobId>.log`. On PASS the id is a slug of the
+title plus 4 random characters.
+
+### Smoke harness
+
+`node runner/harness/smoke.mjs <bundleDir>` (or `--html … --meta …`) loads `tv.html` into jsdom as the
+TV host would: 3 fake players, `init`, then it answers every input screen (first button, short text,
+pad strokes), answers `ai` (data from the schema, or text), `bot_answer` (`{ text: "idk lol" }`) and
+`ai_image` (a tiny data: PNG), answers `motion_start` with a ready `motion_status` and a few
+`motion` frames, and adds a 4th player mid-game. The game clock runs 20x fast (`--speed`). Two passes:
+everything answered, then every AI call `ok: false` and the camera `unavailable`. FAIL on: missing
+meta fields, external src/href, fetch/XHR/WebSocket/EventSource/import()/storage, no `state` or
+`screen` within 5 s of init, uncaught errors, malformed messages or deadlines, no input screen,
+stalling before 2 rounds (or `done`), silence after an input. `--verbose` prints every message.
+Both `games/sample` and `games/whos-the-bot` pass.

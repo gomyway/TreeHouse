@@ -1,0 +1,157 @@
+# Game bundle contract
+
+A bundle is two files in the job directory:
+
+- `meta.json`: `{ "id", "title", "description", "phases", "minPlayers", "maxPlayers" }`
+  - `id`: lowercase-kebab slug of the title (the runner replaces it with a unique one at publish).
+  - `title`: short game name.
+  - `description`: one or two sentences a TV agent can read aloud.
+  - `phases`: the phase names your `state` messages use, e.g. `["write", "vote", "reveal", "final"]`.
+  - `minPlayers` (integer >= 1), `maxPlayers` (integer >= minPlayers).
+  - Do not add `createdAt` or `prompt`; the server adds them.
+- `tv.html`: one self-contained page. The TV loads it into a sandboxed iframe
+  (`sandbox="allow-scripts"`, no same-origin) and bridges it to players' phones and to a voice agent.
+  You never see the phones' code; you drive them by posting declarative screens.
+
+## The bridge (window.postMessage, exactly these shapes)
+
+Host → game (listen with `window.addEventListener("message", e => { const m = e.data; ... })`):
+
+- `{ type: "init", players: Player[], code: string }`: sent once when the game starts. Start the game here.
+- `{ type: "players", players: Player[] }`: full current list, after any join, rejoin or leave.
+- `{ type: "input", player: playerId, data }`: a phone's input (shapes below).
+- `{ type: "sensor", player: playerId, kind: "gyro" | "camera" | "mic", data }`: sensor readings you asked for.
+- `{ type: "voice", text: string }`: optional: a viewer's spoken instruction relayed by the agent
+  ("skip", "make it harder"). Handle it sensibly or ignore it.
+- `{ type: "ai_result", id: string, ok: boolean, data?, url?: string, error?: string }`: the answer
+  to one of your `ai` / `ai_image` / `bot_answer` requests (below).
+- `{ type: "motion", actions: [{ id, side?, slot }], held: [{ id, side?, slot }], controls: [{ id, value, slot }] }`:
+  camera motion frames while motion is on (below).
+- `{ type: "motion_status", state, reason?, slots: [{ slot, state }] }`: camera tracking status.
+
+`Player = { id: string, name: string, connected: boolean }`. Players can join mid-game, leave, and
+come back with the same id: send late joiners the current screen.
+
+Game → host (`window.parent.postMessage(msg, "*")`):
+
+- `{ type: "screen", to: playerId | "*", screen: Screen }`: what a phone shows now.
+- `{ type: "ask", to: playerId | "*", kind: "gyro" | "camera" | "mic", on: boolean, hz?: number }`: start/stop a phone sensor.
+- `{ type: "play", to: playerId | "*", text?: string, url?: string }`: make a phone speak text or
+  play a sound (url must be a `data:` URL).
+- `{ type: "say", text: string }`: the TV's voice agent says this aloud. Use for announcements:
+  round starts, results, winners. One or two short sentences.
+- `{ type: "state", summary: string, phase: string, scores?: { [playerName]: number } }`: post after
+  every meaningful change. `summary` is plain English the agent reads to narrate and to answer
+  "who's winning?"; `phase` is one of `meta.phases`.
+- `{ type: "done" }`: the game is over; the host returns to the lobby. Post it a few seconds after
+  showing final results.
+- `{ type: "ai", id: string, instruction: string, context?: any, schema?: JSONSchema }`: the host runs
+  a language model for you (the Little SDK's `app.compose`) and answers with `ai_result`. `data` is
+  the JSON object matching `schema` when you give one, otherwise text.
+- `{ type: "ai_image", id: string, hint: string }`: the host generates an image (`app.image`) and
+  answers with `ai_result`; `url` is the image to show (set it as an `<img>` src at runtime).
+- `{ type: "bot_answer", id: string, prompt: string, humans: string[], imitate?: string[], caught?: string[], effort?: "joke" | "lazy" | "room" }`:
+  an AI player's answer to `prompt` that must pass as human. `humans` are this round's (or the last
+  round's) human answers so the host can match their style, `imitate` optional sample answers to
+  resemble, `caught` answers of bots already spotted (to avoid), `effort` how hard to try. The host
+  composes several candidates, rejects the ones that read as machine-written, shapes the best to
+  the room (case, punctuation, length, typos) and answers with `ai_result` whose `data` is `{ text }`.
+- `{ type: "motion_start", actions?: string[], held?: string[], controls?: string[], maxPlayers?: number }`
+  and `{ type: "motion_stop" }`: camera motion (below).
+
+## AI players and generated content
+
+You never call a model or any API yourself: the only way a game uses AI is the bridge (`ai`,
+`ai_image`, `bot_answer`, answered by `ai_result`), which the host runs on the Little SDK; the game
+has no network. For an AI player's answer that should pass as human, prefer `bot_answer` over raw
+`ai`: the host then handles style matching and tell removal for you. Use `ai` for bots that play
+alongside the humans, generated prompts, judging or commentary. `id` is your own correlation id;
+the host just echoes it. A result takes a few seconds, so ask early (when a round opens, not when
+it closes) and keep your own timeout of about 15 s. If `ok` is false, the result never comes, or
+`data` has the wrong shape, keep going with fallback content you wrote into tv.html (canned
+answers, an emoji instead of an image). The game must be fully playable with every AI call
+failing. The host makes the call, so the game needs no API key. Never reveal a bot's identity on a
+phone screen unless the game wants it known.
+
+Example, a bot answering in the room's style with a canned fallback:
+
+```js
+const pending = {}; let aiSeq = 0;
+function ai(instruction, context, schema, fallback, cb) {
+  const id = "ai" + (++aiSeq);
+  const timer = setTimeout(() => { if (pending[id]) { delete pending[id]; cb(fallback); } }, 15000);
+  pending[id] = (m) => { clearTimeout(timer); cb(m.ok && m.data && typeof m.data.answer === "string" && m.data.answer.trim() ? m.data.answer.trim() : fallback); };
+  window.parent.postMessage({ type: "ai", id, instruction, context, schema }, "*");
+}
+// in the message listener: if (m.type === "ai_result" && pending[m.id]) { const f = pending[m.id]; delete pending[m.id]; f(m); }
+// when the round opens (myRound guards against a result landing after the phase moved on):
+const myRound = round;
+ai("You are a human at a party game. Answer the prompt in under 12 words, casual, lowercase, like the example answers. Reply with the answer only.",
+   { prompt: question, examples: lastRoundHumanAnswers },
+   { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] },
+   CANNED[Math.floor(Math.random() * CANNED.length)],
+   (text) => { if (round === myRound) answers.set(BOT_ID, text); });
+```
+
+## Camera motion (optional)
+
+The TV host can track up to two people in front of the TV camera (Little SDK). Use it only when
+the request is about moving; most games should not.
+
+- Send `{ type: "motion_start", actions: ["raise_left", ...], held: [...], controls: [...], maxPlayers: 2 }`
+  when a phase needs motion, and `{ type: "motion_stop" }` when it ends. Request only what the
+  current phase needs.
+- The host answers `motion_status` (`state` reaches `"ready"` when tracking works; `slots` say which
+  of slot 0 and slot 1 are tracking) and then streams `motion` frames: `actions` are one-shot events
+  (`{ id, side: "left" | "right", slot }`), `held` are poses being held now, `controls` are
+  continuous values (`{ id, value, slot }`).
+- Camera games are 2 players max (slots 0 and 1). Map slot 0 / slot 1 to two of the joined players
+  and say so on the TV.
+- Design around single-arm raises (left or right): they are the most reliable action.
+- The game must stay playable when `motion_status` never reaches `"ready"` (no camera, nobody in
+  frame, an error): after a few seconds fall back to phone buttons for the same choices.
+
+## Screen kinds
+
+The phone renders these; nothing else exists. Every kind also takes `deadline?: number` (epoch ms,
+e.g. `Date.now() + 45000`): the phone shows a big countdown and at zero disables its inputs and
+shows "Time's up, look at the TV". A text screen then auto-submits what was typed, or sends
+`{ kind: "text", text: "", late: true }` if nothing was; a buttons screen sends nothing. Phone
+clocks are within about a second of yours: close the round on your own TV timer and accept answers
+up to 1.5 s after the deadline.
+
+- `{ kind: "info", title: string, body?: string }`
+- `{ kind: "buttons", prompt?: string, items: { id: string, label: string }[] }` → input data `{ kind: "button", id }`
+- `{ kind: "text", prompt: string, maxLength?: number, placeholder?: string }` → input data
+  `{ kind: "text", text, late?: true }` (the phone shows a live "n/max" counter; default max 140)
+- `{ kind: "pad", label?: string }` → a touch joystick streaming input data `{ kind: "pad", x, y }` (each -1..1) at ~20 Hz
+- `{ kind: "custom", html: string }` → your own self-contained HTML in a sandboxed iframe on the
+  phone; it sends input with `parent.postMessage({ type: "input", data }, "*")`. Use only when the
+  declarative kinds cannot express the interaction.
+
+Sensors: `gyro` sends orientation/motion readings at `hz`; `camera` sends a JPEG data URL snapshot
+(`hz` 0 = one snapshot); `mic` sends loudness levels. Phones disable a buttons screen after one
+tap, so send a fresh screen for each new question.
+
+## Rules for tv.html
+
+- One complete HTML document, fully self-contained: inline `<style>` and `<script>` only. No
+  external scripts, stylesheets, fonts, images, CDNs or URLs of any kind (the one exception: an
+  image url returned in `ai_result`); no fetch, XMLHttpRequest, WebSocket, EventSource, `import()`,
+  localStorage or cookies (the sandbox blocks them). Draw with CSS, inline SVG or canvas; emoji are fine.
+- It is shown on a television seen from 3 metres: dark theme, high contrast, body text no smaller
+  than about 4vh, headlines about 10vh or more, size everything in vh/vw, no scrolling, one idea on
+  screen at a time.
+- Before init arrives, show a short "waiting" title. All game logic lives in tv.html; the host does
+  nothing but forward messages.
+- Be robust: ignore unknown message types and malformed input, never assume a player id is known,
+  cope with 1 player, end rounds on a timer as well as when everyone has answered, guard timeouts
+  so a stale one cannot fire after the phase moved on.
+- Post a `state` and at least one `screen` (to `"*"` or to every player) right after `init`: the TV
+  refuses a bundle that is silent for 5 s.
+- Keep it compact and readable (a few hundred lines at most).
+
+## Testing
+
+`node harness/smoke.mjs` (from the job directory) must print `SMOKE PASS`. It is the gate: the
+runner re-runs it after you finish and publishes only on PASS.

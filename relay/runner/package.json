@@ -1,0 +1,14 @@
+{
+  "name": "little-redwood-author-runner",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Mac-side runner: claims authoring jobs from the relay, runs pi in Docker, gates with the jsdom harness, publishes.",
+  "scripts": {
+    "start": "node run.mjs",
+    "smoke": "node harness/smoke.mjs"
+  },
+  "dependencies": {
+    "jsdom": "^26.1.0"
+  }
+}
