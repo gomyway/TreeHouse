@@ -163,6 +163,14 @@ TV side, through the Little SDK capabilities declared in the manifest:
 - The phone side needs nothing new: bundles use the declarative screens (with an optional `deadline`),
   and `custom` html for anything special.
 
+## Start gate (Nelson, 14:59)
+
+A built game never starts by itself. When an authoring job reaches `done`, the host shows
+"<title> is ready" with the join code and says "say start when everyone is in". Only `start_game`
+(voice or tool) launches it, and it refuses with a spoken reason while joined players are fewer
+than `meta.minPlayers` (or nobody has joined, unless `meta.phonesRequired` is false). The same gate
+applies to hand-built games.
+
 ## Stage-safety gate for freshly authored games (Leo's Codex, 12:51)
 
 `/author` validates a bundle's structure, not whether it actually starts. Before `start_game` on a
