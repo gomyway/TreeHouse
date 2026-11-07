@@ -82,7 +82,11 @@ export function createGameHost(opts: {
           status(people);
           post({ type: "people", people });
         },
-        onActions: (actions) => post({ type: "motion", actions, held: [], controls: [] }),
+        onActions: (actions) => {
+          // One line per detected move, for tuning thresholds from the little dev log.
+          console.info("[pose]", actions.map((a) => `p${a.slot + 1}:${a.id}${a.side ? "-" + a.side : ""}`).join(" "));
+          post({ type: "motion", actions, held: [], controls: [] });
+        },
       });
       return;
     }
