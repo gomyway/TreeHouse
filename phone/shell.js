@@ -24,13 +24,14 @@ function renderJoin(msg) {
   main.innerHTML = `
     <h1>Join the TV</h1>
     <p>${msg ?? "Type the code on the screen."}</p>
-    <input id="code" class="code" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE" value="${(qs.get("c") ?? "").toUpperCase()}" />
-    <input id="name" maxlength="24" autocomplete="off" placeholder="Your name" value="${savedName}" />
+    <label class="field">Room code on the TV<input id="code" class="code" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="ABCD" value="${esc(prefillCode)}" /></label>
+    <label class="field">Your name<input id="name" maxlength="24" autocomplete="off" autocapitalize="words" placeholder="e.g. Ana" value="${esc(savedName)}" /></label>
     <button id="go">Join</button>`;
   const go = () => {
     const c = $("code").value.trim().toUpperCase(), n = $("name").value.trim();
     if (c.length !== 4) return toast("Four letters.");
     if (!n) return toast("A name helps the room.");
+    if (n.toUpperCase() === c) { $("name").value = ""; $("name").focus(); return toast("That's the room code. What's your name?"); }
     safeSet(localStorage, "lr.name." + c, n);
     connect(c, n);
   };
