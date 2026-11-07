@@ -4,8 +4,10 @@
 // variables:
 //   --bg --surface --ink --muted --accent   palette, from meta.palette (a default when absent)
 //   --font                                  "Satoshi", system-ui, sans-serif
-//   --display --body --tiny                 the three text sizes on the 1920x1080 canvas
+//   --display --body --tiny                 the three text sizes (10vh / 4vh / 2.4vh, shared/palettes.json)
 // plus html/body defaults and a :focus-visible ring in --accent.
+
+import kit from "../../../shared/palettes.json";
 
 export interface Palette {
   bg: string;
@@ -15,10 +17,20 @@ export interface Palette {
   accent: string;
 }
 
-// Placeholder until Nelson's six palettes land in shared/ (asked on WhatsApp 15:45); every id
-// maps to DEFAULT until then, so bundles that declare meta.palette already get a sane look.
-export const DEFAULT_PALETTE: Palette = { bg: "#0B0F0C", surface: "#172019", ink: "#F2EFE6", muted: "#9AA79C", accent: "#E4572E" };
-export const PALETTES: Record<string, Palette> = {};
+// --surface is one step off --bg: 7% toward white on dark palettes, toward black on light ones.
+function surfaceOf(bg: string): string {
+  const n = parseInt(bg.slice(1), 16);
+  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const light = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255 > 0.5;
+  const out = rgb.map((c) => Math.round(light ? c * 0.93 : c + (255 - c) * 0.07));
+  return "#" + out.map((c) => c.toString(16).padStart(2, "0")).join("");
+}
+
+// The six palettes of the authored-game kit (shared/palettes.json, same as the runner's CONTRACT.md).
+export const PALETTES: Record<string, Palette> = Object.fromEntries(
+  Object.entries(kit.palettes).map(([id, p]) => [id, { bg: p.bg, ink: p.ink, muted: p.muted, accent: p.accent, surface: surfaceOf(p.bg) }]),
+);
+export const DEFAULT_PALETTE: Palette = PALETTES[kit.default] ?? Object.values(PALETTES)[0];
 
 let fontCss: Promise<string> | null = null;
 
@@ -49,14 +61,16 @@ function fonts(): Promise<string> {
 }
 
 export function paletteFor(id?: string): Palette {
-  return (id && PALETTES[id]) || DEFAULT_PALETTE;
+  if (!id) return DEFAULT_PALETTE;
+  const key = Object.keys(PALETTES).find((k) => k.toLowerCase() === id.toLowerCase());
+  return key ? PALETTES[key] : DEFAULT_PALETTE;
 }
 
 export async function themeCss(paletteId?: string): Promise<string> {
   const p = paletteFor(paletteId);
   return `${await fonts()}
 :root{--bg:${p.bg};--surface:${p.surface};--ink:${p.ink};--muted:${p.muted};--accent:${p.accent};
---font:"Satoshi",system-ui,-apple-system,"Segoe UI",sans-serif;--display:96px;--body:44px;--tiny:28px}
+--font:${kit.type.font};--display:${kit.type.display};--body:${kit.type.body};--tiny:${kit.type.tiny}}
 html,body{background:var(--bg);color:var(--ink);font-family:var(--font)}
 :focus-visible{outline:6px solid var(--accent);outline-offset:4px}`;
 }
