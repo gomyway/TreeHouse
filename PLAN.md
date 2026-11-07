@@ -136,7 +136,7 @@ TV side, through the Little SDK capabilities declared in the manifest:
   - `{ type: "done" }` (back to lobby)
 
   Camera, through the host's `sense.motion` (Leo's Claude, 13:56; camera games are 2 players max):
-  - game → host `{ type: "motion_start", actions?: string[], held?: string[], controls?: string[], maxPlayers?: number }` and `{ type: "motion_stop" }`. Request only what the current phase needs: the session status is aggregate across every requested semantic, and over-asking keeps it flapping ready/paused and loses actions.
+  - game → host `{ type: "motion_start", mode?: "people", actions?: string[], held?: string[], controls?: string[], maxPlayers?: number }` and `{ type: "motion_stop" }`. Prefer `mode: "people"`: one raw `sense.motion` stream with phantom filtering, numbered figures and skeleton-based arm raises (the semantic session missed most raises, and two streams crash the provider). The host then reports figures as slots; phones can claim "that's me". Request only what the current phase needs: the session status is aggregate across every requested semantic, and over-asking keeps it flapping ready/paused and loses actions.
   - host → game `{ type: "motion", actions: [{ id, side?, slot }], held: [{ id, side?, slot }], controls: [{ id, value, slot }] }` for confirmed edges and current values, and `{ type: "motion_status", state, reason?, slots: [{ slot, state }] }`.
   - Observed on the real TV: 20 Hz, two people tracked as slots 0/1; single-arm raises reliable, both-arms raise weak, squats and swipes not detected. Design around single-arm actions.
   - `{ type: "ai", id, instruction, context?, schema? }`: the host runs it on the Little SDK's

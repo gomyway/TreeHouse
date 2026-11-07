@@ -63,6 +63,7 @@ Game → host (window.parent.postMessage(msg, "*")):
 - { type: "ai_image", id: string, hint: string }  — the host generates an image (app.image) and answers with ai_result; url is the image to show (set it as an <img> src at runtime).
 - { type: "bot_answer", id: string, prompt: string, humans: string[], imitate?: string[], caught?: string[], effort?: "joke" | "lazy" | "room" }  — an AI player's answer to prompt that must pass as human: humans are this round's (or the last round's) human answers so the host can match their style, imitate optional sample answers to resemble, caught answers of bots already spotted (to avoid), effort how hard to try. The host composes several candidates, rejects the ones that read as machine-written, shapes the best to the room (case, punctuation, length, typos) and answers with ai_result whose data is { text }.
 - { type: "motion_start", actions?: string[], held?: string[], controls?: string[], maxPlayers?: number }  — ask the TV camera to watch players' bodies for these action, held-pose and control ids (see "Camera motion").
+- Prefer motion_start {mode:"people"}: one raw motion stream, figures numbered as slots 0/1, skeleton-based single-arm raises; never open two motion streams.
 - { type: "motion_stop" }  — stop the camera session.
 
 # Camera motion
