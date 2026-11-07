@@ -336,3 +336,28 @@ first game together."). skill/CONTRACT.md "Room memory" tells the agent how to u
 
 `test/memories.mjs` (in `pnpm test`) covers auth, the read-back, the crew, the runner block, and a
 delete with scrubbing.
+
+## Game scope
+
+Contract: ../PLAN.md "Game scope (built)". Code: `src/games.mjs` (listing, serving, `checkMeta`),
+`runner/scope.mjs` (the runner's decision), `scripts/publish-games.mjs` (hand-built stays global).
+
+- `meta.scope`: `"global"` (default when absent) or `"tv"`; with `"tv"`, `meta.tvId` (1–64 chars of
+  `[A-Za-z0-9._-]`, required) and `meta.crew` (sorted player guids, ≤ 24, each matching the
+  `GUID_RE` in `src/memories.mjs`). `checkMeta` rejects anything else (PUT /games/:id and the runner's
+  complete both go through it).
+- `GET /games` lists global bundles only. `GET /games?tv=<tvId>` lists global plus that TV's own,
+  newest `createdAt` first, compiled-in sample last when it is not in the bucket.
+- `GET /games/:id/meta.json` and `/tv.html` for a `"tv"` bundle need `?tv=<its tvId>`; without it or
+  with another TV's id they answer 404, the same as an unknown id. Global bundles ignore `?tv=`. An
+  invalid `tv` value counts as absent. CORS and `cache-control: no-store` are unchanged.
+- The runner sets scope at publish time (`decideScope(job.context, memoryInjected)`): `"tv"` when the
+  job's context has a string `tvId`, or TASK.md got a Room memory block with real history (not the
+  "No history yet" line), or `context.players` carries valid guids; otherwise `"global"`. `tvId` is
+  `context.tvId` (sanitized to the allowed characters if needed), or `"unknown-tv"` when none was sent
+  (logged); `crew` is the sorted, deduped guids from `context.players`. Whatever the agent wrote into
+  meta.json for these fields is overwritten. The job log shows `publishing <id> (scope tv, crew 3)`.
+- `pnpm games:publish` refuses a `games/<id>/meta.json` that declares `scope: "tv"`: hand-built
+  bundles are global.
+- Tests: `node test/games.mjs` (routes, checkMeta, publish refusal), `node test/scope.mjs` (the
+  decision, no relay).

@@ -81,6 +81,24 @@ export const MAX_FRAME_BYTES = 256 * 1024; // camera snaps fit, nothing bigger
 export const TV_GRACE_MS = 60_000; // room survives a TV disconnect this long
 export const PLAYER_GRACE_MS = 5 * 60_000; // a phone can rejoin with its playerId this long
 
+// ---- Game bundles (PLAN.md "Game bundle", "Game scope"; relay/src/games.mjs) ----
+/** `<id>/meta.json`. GET /games lists these; GET /games?tv=<tvId> adds that TV's own (scope "tv"). */
+export interface BundleMeta {
+  id: string; // [a-z0-9][a-z0-9-]{0,39}
+  title: string;
+  description: string;
+  phases: string[];
+  minPlayers: number;
+  maxPlayers?: number;
+  createdAt?: string; // ISO; the server fills it in
+  prompt?: string;
+  phonesRequired?: boolean;
+  /** "global" (default when absent): every TV. "tv": only the TV `tvId` (authored with Room memory). */
+  scope?: "global" | "tv";
+  tvId?: string; // 1-64 chars of [A-Za-z0-9._-]; the TV that asked (or "unknown-tv")
+  crew?: string[]; // sorted player guids present at authoring time
+}
+
 // ---- Memories (PLAN.md "Memories"; relay/src/memories.mjs) ----
 // Mirrors the TV memory book (tv/src/game/memories.ts, localStorage "lr.memories.v1":
 // { moments: Moment[] newest first, max 60, only 20 keep clips; results: GameResult[] max 30 }),

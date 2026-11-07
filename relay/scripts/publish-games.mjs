@@ -9,6 +9,7 @@
 //
 // meta.json is validated (id = directory name; title, description, phases, minPlayers present);
 // createdAt is set from the file's mtime when missing; other fields are kept as written.
+// Hand-built bundles are global (PLAN.md "Game scope"): a meta declaring scope "tv" is refused.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -39,6 +40,8 @@ function checkMeta(meta, id) { // same rules as checkMeta in src/games.mjs
   for (const k of ["title", "description"]) if (typeof meta[k] !== "string" || !meta[k].trim()) e.push(`${k} missing`);
   if (!Array.isArray(meta.phases) || !meta.phases.length) e.push("phases missing");
   if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1) e.push("minPlayers missing");
+  if (meta.scope === "tv") e.push(`scope "tv" is for authored games seeded with Room memory; hand-built bundles are global (remove scope/tvId/crew from games/${id}/meta.json)`);
+  else if (meta.scope !== undefined && meta.scope !== "global") e.push(`scope ${JSON.stringify(meta.scope)} must be "global" (or absent)`);
   return e;
 }
 

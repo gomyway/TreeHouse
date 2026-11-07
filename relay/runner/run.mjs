@@ -25,7 +25,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { createPiTracker } from "./pi-events.mjs";
-import { roomMemorySection } from "./room-memory.mjs";
+import { roomMemorySection, hasHistory } from "./room-memory.mjs";
+import { decideScope, applyScope } from "./scope.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RELAY_DIR = resolve(HERE, "..");
@@ -153,6 +154,7 @@ async function prepareJobDir(job, log) {
   // Players + "Room memory" from GET /memories (2 s timeout; empty or "No history yet" on failure).
   const memory = await roomMemorySection(RELAY, job.context).catch(() => "");
   if (memory) log("room memory block added to TASK.md");
+  job.memoryInjected = hasHistory(memory); // drives the game's scope (scope.mjs)
   writeFileSync(join(dir, "TASK.md"), `# Game request\n\n${job.prompt}\n${ctx}${memory ? `\n${memory}` : ""}\n## Deliverable\n\nWrite \`meta.json\` and \`tv.html\` in this directory following \`skill/SKILL.md\` and \`skill/CONTRACT.md\`.\nDone means \`node harness/smoke.mjs\` prints SMOKE PASS and the game is fun on a TV.\n`);
   return dir;
 }
@@ -272,7 +274,11 @@ async function runJob(job) {
       log(`done in ${Math.round((Date.now() - t0) / 1000)} s: ${dir}/tv.html (id ${id}, not published)`);
       return { ok: true, dir, id };
     }
-    await progress(`publishing ${id}`);
+    const sc = decideScope(job.context, job.memoryInjected);
+    applyScope(meta, sc);
+    if (sc.note) log(`scope: ${sc.note}`);
+    log(`scope ${sc.scope}${sc.scope === "tv" ? ` (tvId ${sc.tvId}, crew ${sc.crew.length}; tvId sent: ${typeof job.context?.tvId === "string"}, memory history: ${!!job.memoryInjected})` : ""}`);
+    await progress(`publishing ${id} (scope ${sc.scope}${sc.scope === "tv" ? `, crew ${sc.crew.length}` : ""})`);
     const ok = await complete({ id, meta, html });
     log(`${ok ? "published" : "publish FAILED"} ${id} in ${Math.round((Date.now() - t0) / 1000)} s`);
     return { ok, dir, id };

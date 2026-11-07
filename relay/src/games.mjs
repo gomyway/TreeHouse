@@ -3,11 +3,26 @@
 // pre-built ones from ../games (scripts/publish-games.mjs, or PUT /games/:id) show up alike. The
 // hand-written sample bundle (../games/sample) is also compiled into the Worker, so GET
 // /games/sample/* and the listing work against an empty bucket. Contract: ../../PLAN.md "Game bundle".
+// Scope (PLAN.md "Game scope"): meta.scope "global" (or absent) is listed and served to every TV;
+// "tv" bundles (authored with Room memory) only with ?tv=<meta.tvId>, else they are absent / 404.
+import { GUID_RE } from "./memories.mjs";
 import sampleMeta from "../games/sample/meta.json";
 import sampleTv from "../games/sample/tv.html"; // wrangler imports .html as text
 
 export const SAMPLE = { meta: sampleMeta, tv: sampleTv };
 export const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const TVID_RE = /^[A-Za-z0-9._-]{1,64}$/;
+export const SCOPES = ["global", "tv"];
+const MAX_CREW = 24;
+
+// Whether a bundle may be listed / served to the TV `tv` (a valid tvId or null).
+export function visibleTo(meta, tv) {
+  const scope = meta?.scope ?? "global";
+  if (scope === "global") return true;
+  return scope === "tv" && !!tv && meta.tvId === tv;
+}
+// The ?tv= parameter, or null when absent or not a valid tvId.
+const tvParam = (url) => { const t = url.searchParams.get("tv"); return t && TVID_RE.test(t) ? t : null; };
 const ID_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"; // no look-alikes
 
 export const CORS = {
@@ -29,9 +44,10 @@ export function newId() {
 
 const META_KEY_RE = /^([a-z0-9][a-z0-9-]{0,39})\/meta\.json$/;
 
-// Every `<id>/meta.json` in the bucket, newest createdAt first (missing createdAt sorts last).
-// Other keys (jobs/*, a stale index.json, tv.html) are skipped. Tens of games: one GET each is fine.
-export async function listGames(env) {
+// Every `<id>/meta.json` in the bucket visible to `tv` (global ones, plus that TV's own when tv is
+// given), newest createdAt first (missing createdAt sorts last). Other keys (jobs/*, a stale
+// index.json, tv.html) are skipped. Tens of games: one GET each is fine.
+export async function listGames(env, tv = null) {
   const keys = [];
   let cursor;
   do {
@@ -44,7 +60,7 @@ export async function listGames(env) {
       const m = await (await env.GAMES.get(key))?.json();
       return m && typeof m === "object" && m.id === key.match(META_KEY_RE)[1] ? m : null;
     } catch { return null; }
-  }))).filter(Boolean);
+  }))).filter((m) => m && visibleTo(m, tv));
   const t = (m) => { const v = Date.parse(m.createdAt); return Number.isNaN(v) ? -Infinity : v; };
   metas.sort((a, b) => t(b) - t(a));
   if (!metas.some((m) => m.id === "sample")) metas.push(SAMPLE.meta); // compiled-in sample, always last
@@ -64,6 +80,11 @@ export function checkMeta(meta, id) {
   for (const k of ["title", "description"]) if (typeof meta[k] !== "string" || !meta[k].trim()) e.push(`${k} missing`);
   if (!Array.isArray(meta.phases) || !meta.phases.length) e.push("phases missing");
   if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1) e.push("minPlayers missing");
+  if (meta.scope !== undefined && !SCOPES.includes(meta.scope)) e.push(`scope must be "global" or "tv"`);
+  if (meta.tvId !== undefined && (typeof meta.tvId !== "string" || !TVID_RE.test(meta.tvId))) e.push("tvId must be 1-64 chars of [A-Za-z0-9._-]");
+  if (meta.scope === "tv" && meta.tvId === undefined) e.push(`scope "tv" needs tvId`);
+  if (meta.crew !== undefined && (!Array.isArray(meta.crew) || meta.crew.length > MAX_CREW ||
+    !meta.crew.every((g) => typeof g === "string" && GUID_RE.test(g)))) e.push(`crew must be an array of up to ${MAX_CREW} guids`);
   return e;
 }
 
@@ -84,20 +105,26 @@ async function publish(req, env, id) {
   return cjson({ id, meta: stored });
 }
 
-// GET /games, /games/:id/meta.json, /games/:id/tv.html; PUT /games/:id (see publish)
+// GET /games[?tv=<tvId>], /games/:id/meta.json[?tv=], /games/:id/tv.html[?tv=]; PUT /games/:id (see publish).
+// A tv-scoped bundle is listed and served only when ?tv= matches its tvId; otherwise 404, the same
+// answer as an unknown id, so another TV cannot start it by guessing the id.
 export async function handleGames(req, env, url) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const parts = url.pathname.split("/").filter(Boolean); // ["games", id?, file?]
   if (req.method === "PUT" && parts.length === 2 && ID_RE.test(parts[1])) return publish(req, env, parts[1]);
   if (req.method !== "GET" && req.method !== "HEAD") return cjson({ error: "method not allowed" }, 405);
-  if (parts.length === 1) return cjson(await listGames(env));
+  const tv = tvParam(url);
+  if (parts.length === 1) return cjson(await listGames(env, tv));
   const [, id, file] = parts;
   if (parts.length !== 3 || !ID_RE.test(id) || (file !== "meta.json" && file !== "tv.html")) return cjson({ error: "not found" }, 404);
 
-  const obj = await env.GAMES.get(`${id}/${file}`);
+  const [obj, metaObj] = await Promise.all([env.GAMES.get(`${id}/${file}`), file === "tv.html" ? env.GAMES.get(`${id}/meta.json`) : null]);
   let body = obj ? await obj.text() : null;
   if (body === null && id === "sample") body = file === "tv.html" ? SAMPLE.tv : JSON.stringify(SAMPLE.meta);
   if (body === null) return cjson({ error: "no such game" }, 404);
+  let meta = null; // scope check; a bundle without a readable meta.json counts as global (as before)
+  try { meta = JSON.parse(file === "meta.json" ? body : (metaObj ? await metaObj.text() : "null")); } catch {}
+  if (!visibleTo(meta, tv)) return cjson({ error: "no such game" }, 404);
   if (file === "meta.json") return new Response(body, { headers: { "content-type": "application/json", "cache-control": "no-store", ...CORS } });
   return new Response(body, {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": TV_CSP, ...CORS },

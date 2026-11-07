@@ -57,6 +57,9 @@ export function roomMemoryMarkdown(players, data) {
   return out.join("\n");
 }
 
+// True when the block names real history (not just the "first game together" line).
+export const hasHistory = (markdown) => !!markdown && markdown.includes("## Room memory") && !markdown.includes("No history yet");
+
 export async function roomMemorySection(relay, context) {
   const players = contextPlayers(context);
   if (!players.length) return "";

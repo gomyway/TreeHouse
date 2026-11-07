@@ -177,25 +177,29 @@ or fewer than 2 are sent (warn only when `phonesRequired` is false), warns when 
 offer named characters who are not players, and prints a `participation` line per pass.
 
 
-## Backlog: game scope, per TV vs global (Nelson, 15:50)
+## Game scope (built)
 
-Today every bundle on the game server is global: any TV lists and starts it. Once authored games are
-seeded with Room memory they carry details about specific people (names, callbacks, standing jokes),
-so they must not surface on other TVs.
+Authored games seeded with Room memory name specific people, so they stay on the TV that asked.
+Details and tests: relay/README.md "Game scope"; type `BundleMeta` in shared/protocol.ts.
 
-- `meta.scope: "global" | "tv"` (default `"global"` for hand-built bundles and for authored games
-  built with no memory block). The runner sets `"tv"` whenever the task carried a Room memory block
-  or a players list, and records `meta.tvId` (the TV that asked) and `meta.crew` (sorted guids
-  present at authoring time).
-- `create_game` sends `context.tvId` with the players; `list_games` calls `GET /games?tv=<tvId>`,
-  which returns global bundles plus that TV's own; `GET /games` without `tv` returns global only.
-  `start_game` on a `tv`-scoped bundle from another TV is refused by the server (404).
-- `pnpm games:publish` stays global. A later "share this game" could re-author a `tv` bundle into a
-  global one by stripping the memory-specific text (new job with scope global and no memory block).
-- Memory book entries keep `room` and `crew`; a TV's `show_memories` and the Room memory block are
-  already scoped by guid, so only the bundle listing needs the change.
+- `meta.scope: "global" | "tv"` (absent = global), `meta.tvId` (1–64 chars of `[A-Za-z0-9._-]`),
+  `meta.crew` (sorted guids present at authoring time). Hand-built bundles are global:
+  `pnpm games:publish` refuses a meta with `scope: "tv"`.
+- The runner publishes `"tv"` when the job's `context.tvId` is a string, or a Room memory block with
+  real history went into TASK.md, or `context.players` carries guids; `tvId = context.tvId` or
+  `"unknown-tv"` when none was sent. Otherwise global. The job log says
+  `publishing <id> (scope tv, crew 3)`.
+- `GET /games` returns global bundles only; `GET /games?tv=<tvId>` returns global plus that TV's own
+  (newest first, sample last). `GET /games/:id/{meta.json,tv.html}` of a `"tv"` bundle needs
+  `?tv=<its tvId>`, else 404, so another TV cannot start it by guessing the id.
+- **TV side (Leo):** `create_game` must send `context.tvId` with the players, and `list_games` /
+  `start_game` must call `GET /games?tv=<tvId>` and `/games/:id/…?tv=<tvId>`. Until then the TV sees
+  only global games, and authored games with players land under `"unknown-tv"`.
 - Where `tvId` comes from: the host's household or device id from the SDK environment if available,
   else a per-TV id the host generates once and keeps in localStorage next to `lr.memories.v1`.
+- Later: "share this game" could re-author a `"tv"` bundle into a global one by stripping the
+  memory-specific text (a new job with no tvId, no player guids and no memory block). Memory book
+  entries keep `room` and `crew`; `show_memories` and the Room memory block are already guid-scoped.
 
 ## Memories (sketch, Nelson 15:20): the recap is the harvest
 

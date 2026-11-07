@@ -97,4 +97,66 @@ ok(`scripts/publish-games.mjs --url publishes the sample; listed once, by create
 
 if ((await get("/games/nope1234/meta.json")).status !== 404) fail("unknown id should 404"); ok("unknown game → 404");
 
+// Game scope (PLAN.md "Game scope"): a tv-scoped bundle is listed and served only with ?tv=<its tvId>.
+const before = list; // the listing after publishing the sample (by createdAt; the bucket's sample sorts by date now)
+const idsFor = async (q) => {
+  const r = await get(`/games${q}`);
+  if (!r.ok || r.headers.get("access-control-allow-origin") !== "*" || r.headers.get("cache-control") !== "no-store") fail(`GET /games${q} ${r.status}`);
+  return (await r.json()).map((m) => m.id);
+};
+const bad = async (extra, why) => {
+  const r = await put("scoped-bad", { meta: meta("scoped-bad", extra), html });
+  if (r.status !== 400) fail(`PUT with ${why} should 400, got ${r.status}`);
+};
+await bad({ scope: "household" }, 'scope "household"');
+await bad({ scope: "tv", tvId: "has space" }, "a bad tvId");
+await bad({ scope: "tv", tvId: "x".repeat(65) }, "a 65-char tvId");
+await bad({ scope: "tv", tvId: "tv-test-1", crew: "guid-a-0001" }, "crew not an array");
+await bad({ scope: "tv", tvId: "tv-test-1", crew: ["no"] }, "a crew entry that is not a guid");
+ok('checkMeta rejects scope "household", a bad tvId, and a bad crew → 400');
+
+res = await put("scoped-tv", { meta: meta("scoped-tv", { scope: "tv", tvId: "tv-test-1", crew: ["guid-a-0001"] }), html });
+if (res.status !== 200) fail(`PUT scoped-tv ${res.status} ${await res.text()}`);
+res = await put("scoped-global", { meta: meta("scoped-global", { scope: "global" }), html });
+if (res.status !== 200) fail(`PUT scoped-global ${res.status} ${await res.text()}`);
+ok("PUT a tv-scoped bundle (tv-test-1, crew 1) and an explicit global one");
+
+list = await idsFor("");
+if (!same(list, ["scoped-global", ...before])) fail(`GET /games: ${list}`);
+ok("GET /games omits the tv-scoped bundle; global ones (explicit and absent scope) listed as before");
+list = await idsFor("?tv=tv-test-1");
+if (!same(list, ["scoped-global", "scoped-tv", ...before])) fail(`GET /games?tv=tv-test-1: ${list}`);
+ok(`GET /games?tv=tv-test-1 adds it, newest first (${list.join(", ")})`);
+list = await idsFor("?tv=tv-other");
+if (!same(list, ["scoped-global", ...before])) fail(`GET /games?tv=tv-other: ${list}`);
+ok("GET /games?tv=<another tv> omits it");
+
+for (const f of ["tv.html", "meta.json"]) {
+  const st = async (q) => (await get(`/games/scoped-tv/${f}${q}`)).status;
+  const [none, mine, other] = [await st(""), await st("?tv=tv-test-1"), await st("?tv=tv-other")];
+  if (none !== 404 || mine !== 200 || other !== 404) fail(`${f}: no tv ${none}, right tv ${mine}, other tv ${other}`);
+}
+res = await get("/games/scoped-tv/tv.html?tv=tv-test-1");
+if (res.headers.get("access-control-allow-origin") !== "*" || !res.headers.get("content-security-policy") || (await res.text()) !== html) fail("scoped tv.html headers/body");
+ok("GET /games/scoped-tv/{tv.html,meta.json}: 404 without tv, 200 with tv-test-1, 404 with another tv");
+for (const q of ["", "?tv=tv-test-1", "?tv=tv-other"]) {
+  if ((await get(`/games/scoped-global/tv.html${q}`)).status !== 200 || (await get(`/games/sample/meta.json${q}`)).status !== 200) fail(`global bundle with "${q}"`);
+}
+ok("global bundles are served with or without ?tv=");
+
+// scripts/publish-games.mjs refuses a hand-built meta declaring scope "tv" (copy of the script on a temp games dir).
+const pubRoot = path.join(tmp, "pubroot");
+fs.mkdirSync(path.join(pubRoot, "scripts"), { recursive: true });
+fs.copyFileSync(path.join(relayDir, "scripts/publish-games.mjs"), path.join(pubRoot, "scripts/publish-games.mjs"));
+for (const [id, extra] of [["hand-tv", { scope: "tv", tvId: "tv-test-1" }], ["hand-ok", {}]]) {
+  fs.mkdirSync(path.join(pubRoot, "games", id), { recursive: true });
+  fs.writeFileSync(path.join(pubRoot, "games", id, "meta.json"), JSON.stringify(meta(id, extra)));
+  fs.writeFileSync(path.join(pubRoot, "games", id, "tv.html"), html);
+}
+const pub2 = spawnSync(process.execPath, [path.join(pubRoot, "scripts/publish-games.mjs"), "--url", base],
+  { env: { ...process.env, PUBLISH_TOKEN: TOKEN }, encoding: "utf8" });
+if (pub2.status === 0 || !/1 published, 1 failed/.test(pub2.stdout) || !/FAILED hand-tv: .*hand-built bundles are global/.test(pub2.stderr)) fail(`publish-games scope tv: ${pub2.status}\n${pub2.stdout}${pub2.stderr}`);
+if ((await idsFor("?tv=tv-test-1")).includes("hand-tv")) fail("hand-tv was published");
+ok("scripts/publish-games.mjs refuses a hand-built meta with scope \"tv\" and publishes the rest");
+
 console.log(`\n${n} checks passed`); process.exit(0);
