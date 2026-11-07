@@ -1,0 +1,14 @@
+{
+  "_note": "The authored-game palette kit (PLAN.md, relay/runner/skill/CONTRACT.md). One per game, declared as meta.palette. The TV host injects the chosen palette as --bg/--ink/--muted/--accent; bundles reference the variables. Default when meta.palette is absent: Broadcast.",
+  "default": "Broadcast",
+  "palettes": {
+    "Noir":      { "bg": "#0e0e10", "ink": "#e8e0cf", "muted": "#6e7480", "accent": "#e5322d", "mood": "crime, bluffing, accusations, tension" },
+    "Broadcast": { "bg": "#0b1630", "ink": "#ffffff", "muted": "#8b97ab", "accent": "#ffb000", "mood": "quiz show, trivia, a live studio" },
+    "Paper":     { "bg": "#f2ece0", "ink": "#16161a", "muted": "#77736b", "accent": "#2747d6", "mood": "words, drawing, calm daytime (light theme)" },
+    "Arcade":    { "bg": "#08090b", "ink": "#ffffff", "muted": "#7c8088", "accent": "#00e5ff", "mood": "reflexes, speed, motion, retro" },
+    "Campfire":  { "bg": "#22170f", "ink": "#f5ead6", "muted": "#b08a4a", "accent": "#ff6a1f", "mood": "stories, confessions, a cosy night" },
+    "Lagoon":    { "bg": "#08343a", "ink": "#efe2c4", "muted": "#7f9a9c", "accent": "#ff6f5e", "mood": "holidays, silliness, light-hearted" }
+  },
+  "forbidden": ["#b98cff", "#f6f3ff", "#ffd23f", "#3ddc84", "#5fe0c0"],
+  "type": { "display": "10vh", "body": "4vh", "tiny": "2.4vh", "maxWeight": 500, "font": "\"Satoshi\", system-ui, sans-serif" }
+}
