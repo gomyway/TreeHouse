@@ -14,6 +14,7 @@ const sensors = { gyro: null, camera: null, mic: null }; // active stop() functi
 // ---------- join ----------
 function renderJoin(msg) {
   stopPad(); stopClock();
+  main.className = "join"; // drop any dead/expired state left by the previous screen
   const savedName = localStorage.getItem("lr.name") ?? "";
   main.innerHTML = `
     <h1>Join the TV</h1>
@@ -74,7 +75,8 @@ function setTv(status) { $("hdr-tv").textContent = status === "connected" ? "●
 
 // ---------- screens ----------
 function renderScreen(s) {
-  stopPad(); stopClock();
+  stopPad();
+  main.className = ""; stopClock();
   switch (s.kind) {
     case "info": main.innerHTML = `<h1>${esc(s.title)}</h1>${s.body ? `<p>${esc(s.body)}</p>` : ""}`; break;
     case "buttons":
