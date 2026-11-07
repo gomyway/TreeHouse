@@ -47,16 +47,31 @@ function connect(c, name) {
   code = c; closedByTv = false;
   const prev = safeGet(sessionStorage, "lr.player." + code);
   const url = `${wsBase}/join?code=${code}&name=${encodeURIComponent(name)}${prev ? "&player=" + prev : ""}`;
-  ws = new WebSocket(url);
-  ws.onopen = () => { retry = 0; };
-  ws.onmessage = (e) => handle(JSON.parse(e.data));
-  ws.onclose = () => {
-    setTv("offline"); stopAllSensors();
-    if (closedByTv || !player) return;
+  if (ws) { try { ws.onclose = null; ws.close(); } catch {} }
+  clearTimeout(reconnectTimer);
+  lastName = name;
+  const sock = new WebSocket(url);
+  ws = sock;
+  sock.onopen = () => { retry = 0; startHeartbeat(sock); };
+  sock.onmessage = (e) => { if (e.data === "pong") return; handle(JSON.parse(e.data)); };
+  sock.onclose = () => {
+    if (ws !== sock) return; // superseded by a newer socket
+    stopHeartbeat(); setTv("offline"); stopAllSensors();
+    if (closedByTv) return;
     const wait = Math.min(8000, 500 * 2 ** retry++);
-    setTimeout(() => connect(code, name), wait);
+    reconnectTimer = setTimeout(() => connect(code, name), wait);
   };
 }
+
+// Keep-alive + fast resume. Carrier NAT drops a silent WebSocket in 30-60 s and iOS kills sockets
+// when the screen locks, so: heartbeat every 20 s, and reconnect at once when the page is visible again.
+let heartbeat = null, reconnectTimer = null, lastName = null;
+function startHeartbeat(sock) { stopHeartbeat(); heartbeat = setInterval(() => { if (sock.readyState === 1) sock.send("ping"); }, 20_000); }
+function stopHeartbeat() { clearInterval(heartbeat); heartbeat = null; }
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || closedByTv || !code || !lastName) return;
+  if (!ws || ws.readyState > 1) { retry = 0; clearTimeout(reconnectTimer); connect(code, lastName); }
+});
 
 function send(frame) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(frame)); }
 const input = (data) => send({ type: "input", data });

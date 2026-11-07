@@ -57,6 +57,9 @@ export class Room {
   constructor(ctx, env) {
     this.ctx = ctx; this.env = env;
     this.code = null; this.hostToken = null; this.players = null; // Map id -> {id,name,connected,leftAt}
+    // Keep-alive: clients send the literal "ping" every ~20 s (carrier NAT drops silent sockets);
+    // the runtime answers "pong" without waking this object.
+    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   async load() {
