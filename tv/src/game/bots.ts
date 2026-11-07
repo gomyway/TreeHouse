@@ -1,5 +1,5 @@
 import type { LittleApp } from "@kabletv/little-sdk";
-import { pickMostHuman, styleStats } from "./humanizeLite";
+import { pickMostHuman, styleStats } from "../../../shared/humanize";
 
 // AI players as a host service (PLAN.md contract extension):
 //   game → host  { type: "bot_answer", id, prompt, humans: string[], imitate?: string[],
@@ -60,5 +60,5 @@ export async function botAnswer(app: LittleApp, req: BotAnswerRequest): Promise<
   });
   if (!res.ok) return null;
   const candidates = Array.isArray(res.data.candidates) ? (res.data.candidates as unknown[]).map(String) : [];
-  return pickMostHuman(candidates, stats, { existing: req.humans, imitate: req.imitate });
+  return pickMostHuman(candidates, stats, { existing: req.humans, imitate: req.imitate, rng: Math.random })?.text ?? null;
 }
