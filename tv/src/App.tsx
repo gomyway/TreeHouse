@@ -286,7 +286,8 @@ export default function App() {
     const list = gamesRef.current.length ? gamesRef.current : await refreshGames();
     const meta = findGame(list, String(id ?? game ?? ""));
     if (!meta) return { ok: false, detail: `No game matches "${String(id ?? game ?? "")}". Available: ${list.map((g) => g.title).join(", ")}.` };
-    if (!activePlayers.length) return { ok: false, detail: "Nobody has joined yet. Ask people to scan the code first." };
+    if (!activePlayers.length && meta.phonesRequired !== false)
+      return { ok: false, detail: "Nobody has joined yet. Ask people to scan the code first." };
     try {
       await startGame(meta);
       return { detail: `Started ${meta.title} with ${activePlayers.length} players.` };
@@ -371,7 +372,7 @@ export default function App() {
       if (e.key === "ArrowLeft") setFocus((f) => (f - 1 + n) % n);
       if (e.key === "Enter") {
         const g = gamesRef.current[Math.min(focus, n - 1)];
-        if (g && roomRef.current.players.some((p) => p.connected)) void startGame(g);
+        if (g && (g.phonesRequired === false || roomRef.current.players.some((p) => p.connected))) void startGame(g);
       }
     };
     window.addEventListener("keydown", onKey);

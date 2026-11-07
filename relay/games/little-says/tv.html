@@ -76,7 +76,7 @@ let players = new Map(), joinOrder = [];
 let phase = "lanes", token = 0;
 const lanes = [{ id: null, name: "Left", lives: LIVES, pts: 0, out: false }, { id: null, name: "Right", lives: LIVES, pts: 0, out: false }];
 let slotState = ["vacant", "vacant"], motionState = "starting";
-let mirror = false, calSides = [];
+let mirror = false, calSides = [], autoStart = false;
 let n = 0, current = null, verdicts = [null, null];
 const bets = new Map();     // phone id -> lane index
 const betPts = new Map();
@@ -133,8 +133,10 @@ function startLanes() {
   token++; phase = "lanes";
   send({ type: "motion_start", actions: ["arm-raise", "both-arms-raise"], maxPlayers: 2 });
   refreshPhones();
-  say("Little Says! Two players, grab a lane on your phone and stand in front of the TV. Everyone else, you're betting.");
-  postState("Choosing players: two lanes, left and right.");
+  say(active().length
+    ? "Little Says! One or two players, stand in front of the TV, left and right. Phones are optional: tap a lane to show your name, or bet on who survives."
+    : "Little Says! One or two players, stand in front of the TV, one on the left and one on the right.");
+  postState("Players step in front of the TV, left and right lanes. Phones are optional.");
   render();
   later(CLAIM_MS, startCalibrate);
 }
@@ -280,7 +282,7 @@ function render(windowMsArg) {
   const head = `<header><div><div class="kicker">${phase === "play" ? `Command ${n} of ${COMMANDS_MAX}` : phase === "calibrate" ? "Warm up" : "Pick your lane"}</div>
     <div class="title"><b>Little</b> Says</div></div><div class="meter">camera: ${esc(motionState)} · bets: ${bets.size}</div></header>`;
   let mid = "";
-  if (phase === "lanes") mid = `<div class="command"><div class="says">Two players: grab a lane on your phone</div><div class="do" style="font-size:96px">Stand in front of the TV</div></div>`;
+  if (phase === "lanes") mid = `<div class="command"><div class="says">One or two players · left and right</div><div class="do" style="font-size:96px">${slotState.includes("active") ? "Get ready…" : "Stand in front of the TV"}</div></div>`;
   else if (phase === "calibrate") mid = `<div class="command"><div class="says">Warm up</div><div class="do">LEFT ARM UP</div></div>`;
   else if (current) {
     const w = windowMsArg ?? 0;
@@ -327,6 +329,9 @@ window.addEventListener("message", (e) => {
     case "motion_status": {
       motionState = m.state + (m.reason ? ` (${m.reason})` : "");
       slotState = [0, 1].map((i) => (m.slots ?? []).find((s) => s.slot === i)?.state ?? "vacant");
+      // No phone needed: once the camera sees someone in a lane, give a second player a few
+      // seconds to step in, then warm up.
+      if (phase === "lanes" && slotState.includes("active") && !autoStart) { autoStart = true; later(6000, startCalibrate); }
       if (m.state === "unavailable" && phase !== "final") { say("I can't use the camera here, so Little Says is off for now."); finish(); return; }
       if (phase !== "play") render(); else { for (const i of [0, 1]) document.querySelectorAll(".lane")[i]?.classList.toggle("on", slotState[i] === "active"); }
       break;
