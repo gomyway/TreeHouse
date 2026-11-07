@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pick A or B</title>
+<style>
+  /* Seen from 3 m: nothing smaller than ~4vh, headlines ~12vh, high contrast, dark. */
+  :root { --bg: #0b0d12; --fg: #f4f6fb; --dim: #8a93a6; --a: #ff6b5b; --b: #4fb3ff; --win: #ffd23f; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5vh; padding: 6vh 6vw; text-align: center; }
+  .kicker { font-size: 4vh; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+  h1 { font-size: 11vh; line-height: 1.05; font-weight: 800; }
+  .opts { display: flex; gap: 4vw; width: 100%; justify-content: center; }
+  .opt { flex: 1; max-width: 40vw; border-radius: 3vh; padding: 5vh 3vw; font-size: 7vh; font-weight: 800; }
+  .opt small { display: block; font-size: 4vh; font-weight: 600; opacity: .85; margin-top: 1.5vh; }
+  .opt.a { background: var(--a); color: #1a0705; } .opt.b { background: var(--b); color: #04121d; }
+  .opt.win { outline: 1.2vh solid var(--win); outline-offset: 1vh; }
+  .big { font-size: 9vh; font-weight: 800; }
+  .row { font-size: 5vh; display: flex; gap: 3vw; flex-wrap: wrap; justify-content: center; }
+  .chip { padding: 1vh 2vw; border-radius: 99px; background: #1c2130; }
+  .chip.done { background: #2b6b3f; }
+  .timer { font-size: 6vh; color: var(--win); font-variant-numeric: tabular-nums; }
+  ol { font-size: 6vh; text-align: left; list-style: none; padding: 0; } ol li { padding: .5vh 0; }
+</style>
+</head>
+<body>
+<div id="app"><div class="kicker">Pick A or B</div><h1>Waiting for players…</h1></div>
+<script>
+// Bundle contract (PLAN.md "Game bundle"): the host posts init/players/input/sensor/voice to us;
+// we post screen/ask/play/say/state/done back to window.parent. No network, no relay access.
+const ROUNDS = [
+  { q: "Breakfast for dinner?", a: "Pancakes", b: "Waffles" },
+  { q: "Dream holiday?", a: "Beach", b: "Mountains" },
+  { q: "Which superpower?", a: "Flying", b: "Invisibility" },
+];
+const PICK_SECONDS = 20, RESULTS_MS = 5000, FINAL_MS = 8000;
+
+let players = new Map();      // id -> { id, name, connected }
+const scores = new Map();     // id -> points
+let round = -1, phase = "waiting", picks = new Map(), deadline = 0, token = 0;
+
+const app = document.getElementById("app");
+const send = (msg) => window.parent.postMessage(msg, "*");
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const nameOf = (id) => players.get(id)?.name ?? "Someone";
+const active = () => [...players.values()].filter((p) => p.connected);
+const scoreboard = () => Object.fromEntries([...players.values()].map((p) => [p.name, scores.get(p.id) ?? 0]));
+const pts = (n) => n + (n === 1 ? " point" : " points");
+const and = (names) => names.length < 2 ? names.join("") : names.slice(0, -1).join(", ") + " and " + names.at(-1);
+const later = (ms, fn) => { const t = token; setTimeout(() => { if (t === token) fn(); }, ms); };
+
+function postState(summary) { send({ type: "state", summary, phase, scores: scoreboard() }); }
+
+function pickScreen() {
+  const r = ROUNDS[round];
+  return { kind: "buttons", prompt: r.q, items: [{ id: "a", label: "A · " + r.a }, { id: "b", label: "B · " + r.b }] };
+}
+function screenFor(id) {
+  if (phase === "pick" && !picks.has(id)) return pickScreen();
+  if (phase === "pick") return { kind: "info", title: "Locked in", body: "Look at the TV." };
+  if (phase === "results") return { kind: "info", title: "Round " + (round + 1) + " done", body: "You have " + pts(scores.get(id) ?? 0) + "." };
+  if (phase === "final") return { kind: "info", title: "Game over", body: "You scored " + pts(scores.get(id) ?? 0) + "." };
+  return { kind: "info", title: "Get ready", body: "The game starts soon." };
+}
+
+function startRound(i) {
+  token++; round = i; phase = "pick"; picks = new Map(); deadline = Date.now() + PICK_SECONDS * 1000;
+  send({ type: "screen", to: "*", screen: pickScreen() });
+  const r = ROUNDS[round];
+  postState(`Round ${round + 1} of ${ROUNDS.length}: ${r.q} A is ${r.a}, B is ${r.b}. ${active().length} players choosing.`);
+  render();
+  later(PICK_SECONDS * 1000, endRound);
+}
+
+function endRound() {
+  if (phase !== "pick") return;
+  token++; phase = "results";
+  const r = ROUNDS[round];
+  const nA = [...picks.values()].filter((v) => v === "a").length, nB = picks.size - nA;
+  const side = nA === nB ? null : nA > nB ? "a" : "b";      // tie: everyone who picked scores
+  const winners = [...picks].filter(([, v]) => side === null || v === side).map(([id]) => id);
+  for (const id of winners) scores.set(id, (scores.get(id) ?? 0) + 1);
+  const what = picks.size === 0 ? "Nobody picked." : side === null ? `A tie, ${nA} each.` : `${side === "a" ? r.a : r.b} wins, ${Math.max(nA, nB)} to ${Math.min(nA, nB)}.`;
+  const who = winners.length ? ` A point for ${and(winners.map(nameOf))}.` : "";
+  send({ type: "say", text: what + who });
+  for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+  postState(`Round ${round + 1} result: ${what}${who}`);
+  render({ nA, nB, side, what, who });
+  later(RESULTS_MS, () => (round + 1 < ROUNDS.length ? startRound(round + 1) : finish()));
+}
+
+function finish() {
+  token++; phase = "final";
+  const ranked = [...players.values()].sort((x, y) => (scores.get(y.id) ?? 0) - (scores.get(x.id) ?? 0));
+  const top = scores.get(ranked[0]?.id) ?? 0;
+  const champs = ranked.filter((p) => (scores.get(p.id) ?? 0) === top && top > 0).map((p) => p.name);
+  const line = champs.length ? `${and(champs)} ${champs.length > 1 ? "win" : "wins"} with ${pts(top)}!` : "No winner this time.";
+  send({ type: "say", text: "Game over. " + line });
+  for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
+  postState("Game over. " + line);
+  render({ ranked, line });
+  later(FINAL_MS, () => send({ type: "done" }));
+}
+
+function render(extra = {}) {
+  const r = ROUNDS[round];
+  if (phase === "pick") {
+    const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    app.innerHTML = `<div class="kicker">Round ${round + 1} of ${ROUNDS.length}</div><h1>${esc(r.q)}</h1>
+      <div class="opts"><div class="opt a">A<small>${esc(r.a)}</small></div><div class="opt b">B<small>${esc(r.b)}</small></div></div>
+      <div class="row">${active().map((p) => `<span class="chip ${picks.has(p.id) ? "done" : ""}">${esc(p.name)}</span>`).join("")}</div>
+      <div class="timer" id="timer">${left}s</div>`;
+  } else if (phase === "results") {
+    app.innerHTML = `<div class="kicker">Round ${round + 1} result</div>
+      <div class="opts"><div class="opt a ${extra.side === "a" ? "win" : ""}">${extra.nA}<small>${esc(r.a)}</small></div>
+      <div class="opt b ${extra.side === "b" ? "win" : ""}">${extra.nB}<small>${esc(r.b)}</small></div></div>
+      <div class="big">${esc(extra.what)}</div><div class="row">${esc(extra.who)}</div>`;
+  } else if (phase === "final") {
+    app.innerHTML = `<div class="kicker">Final scores</div><h1>${esc(extra.line)}</h1>
+      <ol>${extra.ranked.map((p) => `<li>${esc(p.name)} — ${scores.get(p.id) ?? 0}</li>`).join("")}</ol>`;
+  }
+}
+setInterval(() => { const t = document.getElementById("timer"); if (t && phase === "pick") t.textContent = Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) + "s"; }, 250);
+
+function setPlayers(list) {
+  const before = new Set(players.keys());
+  players = new Map((list ?? []).map((p) => [p.id, p]));
+  for (const p of active()) if (!before.has(p.id)) send({ type: "screen", to: p.id, screen: screenFor(p.id) }); // late joiners
+  if (phase === "pick") { render(); if (active().length && active().every((p) => picks.has(p.id))) endRound(); }
+}
+
+window.addEventListener("message", (e) => {
+  const m = e.data;
+  if (!m || typeof m.type !== "string") return;
+  switch (m.type) {
+    case "init":
+      players = new Map((m.players ?? []).map((p) => [p.id, p]));
+      startRound(0);
+      break;
+    case "players":
+      setPlayers(m.players);
+      break;
+    case "input": {
+      const id = m.data && m.data.id;
+      if (phase !== "pick" || picks.has(m.player) || (id !== "a" && id !== "b")) return;
+      picks.set(m.player, id);
+      send({ type: "screen", to: m.player, screen: screenFor(m.player) });
+      render();
+      if (active().every((p) => picks.has(p.id))) endRound();
+      break;
+    }
+    case "sensor":
+      break; // this game uses no sensors
+    case "voice":
+      if (phase === "pick" && /\b(skip|next|hurry|time)\b/i.test(m.text ?? "")) endRound();
+      break;
+  }
+});
+</script>
+</body>
+</html>

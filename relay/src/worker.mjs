@@ -1,7 +1,9 @@
 // Relay on Cloudflare Workers. One Durable Object per room (keyed by its 4-letter code) holds the
 // TV socket and the phone sockets and routes frames between them. No game logic lives here.
-// The same Worker is the natural home for a just-in-time agent endpoint later (/agent/*).
-// Protocol: ../../shared/protocol.ts
+// The same Worker also serves game storage (/games, ./games.mjs) and the authoring manager
+// (/author, ./author.mjs). Protocol: ../../shared/protocol.ts; bundle contract: ../../PLAN.md
+import { handleGames } from "./games.mjs";
+import { handleAuthor } from "./author.mjs";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I or O
 const CODE_RE = /^[A-HJ-NP-Z]{4}$/;
@@ -24,6 +26,8 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (url.pathname === "/health") return json({ ok: true });
+    if (url.pathname === "/author") return handleAuthor(req, env);
+    if (url.pathname === "/games" || url.pathname.startsWith("/games/")) return handleGames(req, env, url);
     if (url.pathname.startsWith("/rooms/")) { // debug: GET /rooms/ABCD
       const code = url.pathname.slice(7).toUpperCase();
       if (!CODE_RE.test(code)) return json({ error: "bad code" }, 400);

@@ -1,0 +1,6 @@
+# Copy to .dev.vars for `wrangler dev` (never commit .dev.vars).
+# AUTHOR_FAKE=1 makes POST /author return the sample bundle without calling the Claude API.
+AUTHOR_FAKE=1
+# For live authoring, delete AUTHOR_FAKE and set your key:
+# ANTHROPIC_API_KEY=sk-ant-...
+# AUTHOR_MODEL=claude-opus-5-5

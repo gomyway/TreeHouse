@@ -2,11 +2,17 @@ name = "little-redwood-relay"
 main = "src/worker.mjs"
 compatibility_date = "2026-10-01"
 
-# The phone shell is served as static assets from ../phone; /host, /join and /health hit the worker first.
+# The phone shell is served as static assets from ../phone; the relay, game storage and authoring
+# routes hit the worker first.
 [assets]
 directory = "../phone"
 binding = "ASSETS"
-run_worker_first = ["/host", "/join", "/health", "/rooms/*"]
+run_worker_first = ["/host", "/join", "/health", "/rooms/*", "/games", "/games/*", "/author"]
+
+# Game bundles: <id>/meta.json, <id>/tv.html, plus index.json. `wrangler dev` simulates it locally.
+[[r2_buckets]]
+binding = "GAMES"
+bucket_name = "little-redwood-games"
 
 [[durable_objects.bindings]]
 name = "ROOM"

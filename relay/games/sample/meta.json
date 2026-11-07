@@ -1,0 +1,10 @@
+{
+  "id": "sample",
+  "title": "Pick A or B",
+  "description": "Three quick rounds. Everyone picks A or B on their phone; whoever sides with the majority scores a point.",
+  "phases": ["pick", "results", "final"],
+  "minPlayers": 1,
+  "maxPlayers": 12,
+  "createdAt": "2026-11-07T00:00:00.000Z",
+  "prompt": "Hand-written sample bundle: three rounds of pick A or B, majority scores."
+}
