@@ -38,7 +38,7 @@ process.on("exit", (code) => {
 });
 
 let base = process.env.RELAY_HTTP, child = null;
-if (!base) ({ base, child } = await start(["AUTHOR_FAKE:1", "AUTHOR_MODE:direct"]));
+if (!base) ({ base, child } = await start(["AUTHOR_FAKE:1", "AUTHOR_MODE:direct", "PUBLISH_TOKEN:"]));
 const done = (code) => { child?.kill(); process.exit(code); };
 const fail = (m) => { console.error("FAIL:", m); done(1); };
 let n = 0; const ok = (m) => console.log(`ok ${++n} - ${m}`);
