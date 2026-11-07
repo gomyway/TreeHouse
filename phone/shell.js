@@ -36,7 +36,9 @@ function renderJoin(msg) {
     connect(c, n);
   };
   $("go").onclick = go;
-  $("name").onkeydown = (e) => e.key === "Enter" && go();
+  // Must not return false: an on* handler that returns false cancels the event, which ate every
+  // keystroke in the name box (paste still worked because it fires no keydown).
+  $("name").onkeydown = (e) => { if (e.key === "Enter") go(); };
   // iOS Safari: a focus() without a user tap leaves the input "focused" with no keyboard, and tapping
   // an already-focused input does not bring the keyboard back, so the name box became untypable
   // whenever the QR prefilled the code. Only auto-focus where there is a real keyboard.
