@@ -1,0 +1,30 @@
+<section id="how" data-transition="fade" style="background:#10201A;color:#F6F1E7;font-family:'Nunito Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:56px">
+<p style="font-size:28px;font-weight:700;letter-spacing:5px;text-transform:uppercase;color:#F2A65A">How game creation works</p>
+<h2 style="font-family:'Fredoka', Arial, sans-serif;font-size:76px;font-weight:600;line-height:1.1;width:1500px">From a spoken idea to a tested game on the TV.</h2>
+<div style="display:flex;align-items:stretch;gap:20px">
+<div style="flex:1;background:#1B3128;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<x-icon name="Chat" style="color:#E4572E;width:56px;height:56px"></x-icon>
+<h3 style="font-family:'Fredoka', Arial, sans-serif;font-size:38px;font-weight:600">Say it</h3>
+<p style="font-size:28px;line-height:1.35;color:#BFD3C7">The kid describes the game to the TV by voice.</p>
+</div>
+<x-shape kind="arrow-right" style="background:#F2A65A;width:56px;height:28px;align-self:center"></x-shape>
+<div style="flex:1;background:#1B3128;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<x-icon name="Code" style="color:#E4572E;width:56px;height:56px"></x-icon>
+<h3 style="font-family:'Fredoka', Arial, sans-serif;font-size:38px;font-weight:600">Agent builds</h3>
+<p style="font-size:28px;line-height:1.35;color:#BFD3C7">A coding agent writes the game in a locked sandbox.</p>
+</div>
+<x-shape kind="arrow-right" style="background:#F2A65A;width:56px;height:28px;align-self:center"></x-shape>
+<div style="flex:1;background:#1B3128;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<x-icon name="CheckCircle" style="color:#E4572E;width:56px;height:56px"></x-icon>
+<h3 style="font-family:'Fredoka', Arial, sans-serif;font-size:38px;font-weight:600">Robots play-test</h3>
+<p style="font-size:28px;line-height:1.35;color:#BFD3C7">Fake players run it twice. It only ships if it passes.</p>
+</div>
+<x-shape kind="arrow-right" style="background:#F2A65A;width:56px;height:28px;align-self:center"></x-shape>
+<div style="flex:1;background:#1B3128;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<x-icon name="Play" style="color:#E4572E;width:56px;height:56px"></x-icon>
+<h3 style="font-family:'Fredoka', Arial, sans-serif;font-size:38px;font-weight:600">Everyone plays</h3>
+<p style="font-size:28px;line-height:1.35;color:#BFD3C7">Phones, AI players and the camera work in it automatically.</p>
+</div>
+</div>
+<aside>Under the hood: the TV posts the idea to our game server, a runner claims the job and runs a coding agent in a Docker sandbox, then a play-through harness runs the game twice with fake players, once with AI and camera working and once with both failing. Only a passing game is published. One and a half to three minutes end to end.</aside>
+</section>
