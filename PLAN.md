@@ -127,7 +127,7 @@ TV side, through the Little SDK capabilities declared in the manifest:
   - `{ type: "players", players: Player[] }` on join / leave
   - `{ type: "input", player, data }` and `{ type: "sensor", player, kind, data }` as they arrive
   - `{ type: "voice", text }` when the agent relays a viewer instruction to the game (optional)
-  - `{ type: "ai_result", id, ok, data?, url?, error? }` answering an `ai` / `ai_image` request (below)
+  - `{ type: "ai_result", id, ok, data?, url?, error? }` answering an `ai` / `ai_image` / `bot_answer` request (below)
 
   game → host
   - `{ type: "screen", to, screen }`, `{ type: "ask", to, kind, on, hz }`, `{ type: "play", to, text|url }` (forwarded to the relay as-is)
@@ -138,12 +138,21 @@ TV side, through the Little SDK capabilities declared in the manifest:
     `app.compose` and answers `ai_result` with `data` (the JSON matching `schema` when one is given,
     otherwise text)
   - `{ type: "ai_image", id, hint }`: the host runs `app.image` and answers `ai_result` with `url`
+  - `{ type: "bot_answer", id, prompt, humans: string[], imitate?: string[], caught?: string[], effort?: "joke"|"lazy"|"room" }`:
+    an AI player's answer that must pass as human; the host answers `ai_result` whose `data` is `{ text }`
+  - The host runs `shared/humanize.ts` over 4 `app.compose` candidates for `bot_answer` (tell rejection,
+    `pickMostHuman`, style post-processing, typos) and returns the winner.
 
   AI calls: `id` is the game's own correlation id (the host echoes it, nothing more). A result can
   take a few seconds, so ask early (e.g. when a round opens) and keep a timeout of your own. When `ok`
   is false (or no answer comes) the game must keep working on fallback content (canned answers, an
   emoji instead of an image). Because the host makes the call, bots and AI players need no API key of
   their own, and nothing secret is in the bundle.
+
+  The only direct model-API call in the system is POST /author (the coding agent). Every other AI use,
+  bots, prompts, the host's own guesses, narration, images, goes through the Little SDK on the TV host
+  (app.compose, app.image, voice.say), reached from bundles only via the bridge (ai, ai_image,
+  bot_answer → ai_result). Bundles have no network.
 
 - The phone side needs nothing new: bundles use the declarative screens (with an optional `deadline`),
   and `custom` html for anything special.

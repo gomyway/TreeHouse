@@ -27,7 +27,7 @@ Host → game (listen with window.addEventListener("message", e => { const m = e
 - { type: "input", player: playerId, data }  — a phone's input (shapes below).
 - { type: "sensor", player: playerId, kind: "gyro" | "camera" | "mic", data }  — sensor readings you asked for.
 - { type: "voice", text: string }  — optional: a viewer's spoken instruction relayed by the agent ("skip", "make it harder"). Handle it sensibly or ignore it.
-- { type: "ai_result", id: string, ok: boolean, data?, url?: string, error?: string }  — the answer to one of your "ai" / "ai_image" requests (below).
+- { type: "ai_result", id: string, ok: boolean, data?, url?: string, error?: string }  — the answer to one of your "ai" / "ai_image" / "bot_answer" requests (below).
 Player = { id: string, name: string, connected: boolean }. Players can join mid-game, leave, and come back with the same id: send late joiners the current screen.
 
 Game → host (window.parent.postMessage(msg, "*")):
@@ -39,9 +39,10 @@ Game → host (window.parent.postMessage(msg, "*")):
 - { type: "done" }  — the game is over; the host returns to the lobby. Post it a few seconds after showing final results.
 - { type: "ai", id: string, instruction: string, context?: any, schema?: JSONSchema }  — the host runs a language model for you (the Little SDK's app.compose) and answers with ai_result. data is the JSON object matching schema when you give one, otherwise text.
 - { type: "ai_image", id: string, hint: string }  — the host generates an image (app.image) and answers with ai_result; url is the image to show (set it as an <img> src at runtime).
+- { type: "bot_answer", id: string, prompt: string, humans: string[], imitate?: string[], caught?: string[], effort?: "joke" | "lazy" | "room" }  — an AI player's answer to prompt that must pass as human: humans are this round's (or the last round's) human answers so the host can match their style, imitate optional sample answers to resemble, caught answers of bots already spotted (to avoid), effort how hard to try. The host composes several candidates, rejects the ones that read as machine-written, shapes the best to the room (case, punctuation, length, typos) and answers with ai_result whose data is { text }.
 
 # AI players and generated content
-Use "ai" for bots that play alongside the humans, generated prompts, judging or commentary. id is your own correlation id; the host just echoes it. A result takes a few seconds, so ask early (when a round opens, not when it closes) and keep your own timeout of about 15 s. If ok is false, the result never comes, or data has the wrong shape, keep going with fallback content you wrote into tv.html (canned answers, an emoji instead of an image). The game must be fully playable with every AI call failing. The host makes the call, so the game needs no API key. Never reveal a bot's identity on a phone screen unless the game wants it known. Example, a bot answering in the room's style with a canned fallback:
+You never call a model or any API yourself: the only way a game uses AI is the bridge (ai, ai_image, bot_answer, answered by ai_result), which the host runs on the Little SDK; the game has no network. For an AI player's answer that should pass as human, prefer bot_answer over raw "ai": the host then handles style matching and tell removal for you. Use "ai" for bots that play alongside the humans, generated prompts, judging or commentary. id is your own correlation id; the host just echoes it. A result takes a few seconds, so ask early (when a round opens, not when it closes) and keep your own timeout of about 15 s. If ok is false, the result never comes, or data has the wrong shape, keep going with fallback content you wrote into tv.html (canned answers, an emoji instead of an image). The game must be fully playable with every AI call failing. The host makes the call, so the game needs no API key. Never reveal a bot's identity on a phone screen unless the game wants it known. Example, a bot answering in the room's style with a canned fallback:
 
 const pending = {}; let aiSeq = 0;
 function ai(instruction, context, schema, fallback, cb) {
