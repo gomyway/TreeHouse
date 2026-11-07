@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { GameState } from "../game/runner";
+import { Qr } from "./Qr";
 
 // Full-screen stage for a running game bundle. The iframe is sandboxed (scripts only, no
 // same-origin, no network) and loaded with srcdoc. The host keeps a thin strip on top so
@@ -67,6 +68,65 @@ export function AuthoringView({ prompt, status, elapsedMs, error }: { prompt: st
         </ol>
       )}
       <div className="hint">{error ? "Press Back to return to the lobby." : `${Math.round(elapsedMs / 1000)} s · usually 1–3 minutes`}</div>
+    </main>
+  );
+}
+
+/** A freshly written game waits here (never auto-starts) until someone says start. */
+export function ReadyView({
+  title,
+  description,
+  minPlayers,
+  phonesOptional,
+  code,
+  joinUrl,
+  players,
+}: {
+  title: string;
+  description: string;
+  minPlayers: number;
+  phonesOptional: boolean;
+  code: string | null;
+  joinUrl: string | null;
+  players: { id: string; name: string; color: string }[];
+}) {
+  const need = phonesOptional ? 0 : Math.max(1, minPlayers);
+  const enough = players.length >= need;
+  return (
+    <main
+      className="ready"
+      data-little="region"
+      data-little-label={`${title} is ready`}
+      data-little-data={JSON.stringify({ title, players: players.length, needs: need, canStart: enough })}
+    >
+      <section className="ready-main">
+        <div className="eyebrow">Your new game is ready</div>
+        <h1 className="ready-title">{title}</h1>
+        <p className="ready-desc">{description}</p>
+        <div className={`ready-cta${enough ? " go" : ""}`} data-little="readout" data-little-label="How to start">
+          {enough ? "Say “start” when everyone is in" : `Waiting for ${need - players.length} more player${need - players.length === 1 ? "" : "s"}…`}
+        </div>
+      </section>
+      <section className="ready-side card">
+        {joinUrl && code ? (
+          <>
+            <Qr value={joinUrl} size={260} />
+            <div className="code small" aria-label={`Room code ${code.split("").join(" ")}`}>
+              {code.split("").map((ch, i) => (
+                <span key={i}>{ch}</span>
+              ))}
+            </div>
+          </>
+        ) : null}
+        <ul className="ready-players">
+          {players.map((p) => (
+            <li key={p.id} style={{ ["--c" as string]: p.color }}>
+              <span className="avatar">{p.name.slice(0, 1).toUpperCase()}</span>
+              {p.name}
+            </li>
+          ))}
+        </ul>
+      </section>
     </main>
   );
 }

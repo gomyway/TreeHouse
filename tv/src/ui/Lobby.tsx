@@ -70,7 +70,7 @@ export function Lobby({
           <div className="eyebrow">Games</div>
           {games.length ? (
             <ul className="game-row">
-              {games.slice(0, 4).map((g, i) => (
+              {games.slice(0, 6).map((g, i) => (
                 <li
                   key={g.id}
                   ref={(el) => {
