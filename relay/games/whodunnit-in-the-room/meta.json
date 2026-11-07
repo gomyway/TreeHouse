@@ -1,0 +1,17 @@
+{
+  "id": "whodunnit-in-the-room",
+  "title": "Whodunnit in the Room",
+  "description": "One of you secretly committed the crime. Pick alibis, watch the clues drop, argue it out, then make your final accusation.",
+  "phases": [
+    "intro",
+    "alibi",
+    "clue",
+    "accuse",
+    "reveal",
+    "final"
+  ],
+  "minPlayers": 2,
+  "maxPlayers": 12,
+  "createdAt": "2026-11-07T23:10:00.000Z",
+  "prompt": "Create a party detective game with clues revealed over time. Players investigate a mystery, discuss suspects and evidence, then make a final accusation. Keep it social, accessible, and fun for the room."
+}
