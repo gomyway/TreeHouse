@@ -10,6 +10,8 @@ A bundle is two files in the job directory:
   - `minPlayers` (integer >= 1), `maxPlayers` (integer >= minPlayers).
   - `phonesRequired` (optional, default true): set false only for camera-only games that must
     start with nobody joined; phones then stay optional for names and bets.
+  - `palette`: one of `"Noir"`, `"Broadcast"`, `"Paper"`, `"Arcade"`, `"Campfire"`, `"Lagoon"` (see
+    "Look and voice rules"); the CSS uses that palette's four tokens.
   - Do not add `createdAt` or `prompt`; the server adds them.
 - `tv.html`: one self-contained page. The TV loads it into a sandboxed iframe
   (`sandbox="allow-scripts"`, no same-origin) and bridges it to players' phones and to a voice agent.
@@ -30,6 +32,47 @@ A bundle is two files in the job directory:
 - About 3 `moment`s and 2 to 4 `award`s, each naming real players.
 - The harness fails a game where any joined player never got an actionable screen
   (unless `meta.phonesRequired` is false).
+
+## Look and voice rules (non-negotiable)
+
+These set how the TV page looks and how the host talks. The harness checks them and prints a `look` line.
+
+- **One palette, picked for the theme.** Choose ONE of the six below, write its name in
+  `meta.palette`, define its four tokens at `:root` and colour everything with them, plus pure
+  black or white for shadows. One accent only.
+
+  | Palette | `--bg` | `--ink` | `--muted` | `--accent` | Mood |
+  |---|---|---|---|---|---|
+  | Noir | `#0e0e10` ink-black | `#e8e0cf` bone | `#6e7480` slate | `#e5322d` signal red | crime, bluffing, accusations, tension |
+  | Broadcast | `#0b1630` deep navy | `#ffffff` white | `#8b97ab` steel | `#ffb000` amber | quiz show, trivia, a live studio |
+  | Paper | `#f2ece0` warm off-white | `#16161a` near-black | `#77736b` grey | `#2747d6` cobalt | words, drawing, calm daytime (the light theme) |
+  | Arcade | `#08090b` near-black | `#ffffff` white | `#7c8088` grey | `#00e5ff` electric cyan | reflexes, speed, motion, retro |
+  | Campfire | `#22170f` dark umber | `#f5ead6` cream | `#b08a4a` ochre | `#ff6a1f` ember orange | stories, confessions, a cosy night |
+  | Lagoon | `#08343a` deep teal | `#efe2c4` sand | `#7f9a9c` sea-grey | `#ff6f5e` coral | holidays, silliness, light-hearted |
+
+- **Forbidden:** the purple/lavender/yellow/mint default family (`#b98cff`, `#f6f3ff`, `#ffd23f`,
+  `#3ddc84`, `#5fe0c0` and near neighbours), rainbow gradients, more than one accent.
+- **Corners:** border-radius 0 to 1.2vh. Never pills (`99px`, `999px`); the countdown ring is the
+  only round thing.
+- **Three text sizes in the whole page**, each defined once at `:root` and used everywhere:
+  `--display` (≥10vh), `--body` (≥4vh), `--tiny` (≥2.4vh). Every `font-size` is one of the three.
+- **No bold.** No `font-weight` above 500 anywhere, headings included (`h1`, `b` and `strong` are bold
+  by default: set them to 500). Hierarchy comes from size, capitals and colour.
+- **One header per screen**, never an eyebrow label stacked on it (no small "ROUND 2" line above the
+  headline); put the round count below or in a corner.
+- **Font:** `font-family: "Satoshi", system-ui, sans-serif`. The host may inject Satoshi; the
+  fallback is fine.
+- **No emoji as UI.** Emoji may appear only inside player-typed content echoed back. None in static
+  markup, CSS, buttons, headers, phone screens or `say` lines. Draw shapes with text characters
+  (● ▲ ★ ✓ ×) or inline SVG.
+- **Voice cadence.** `say` lines are 12 words or fewer (player names not counted), one per beat,
+  at most one exclamation mark per line, no stacked punctuation (`!!`, `?!`). The TV shows the
+  gist; the host says the rest.
+
+The harness fails a forbidden purple-family colour, any `font-weight` of 600 or more, more than 2
+emoji anywhere in tv.html, a `say` line over 12 words and an unknown `meta.palette`. It warns on more
+than 6 non-grey colours, more than 3 font sizes, pill radii, a missing `meta.palette` and 2 or more
+exclamation marks in one line.
 
 ## The bridge (window.postMessage, exactly these shapes)
 
@@ -57,7 +100,7 @@ Game → host (`window.parent.postMessage(msg, "*")`):
 - `{ type: "play", to: playerId | "*", text?: string, url?: string }`: make a phone speak text or
   play a sound (url must be a `data:` URL).
 - `{ type: "say", text: string }`: the TV's voice agent says this aloud. Use for announcements:
-  round starts, results, winners. One or two short sentences.
+  round starts, results, winners. 12 words or fewer (player names not counted), one per beat.
 - `{ type: "state", summary: string, phase: string, scores?: { [playerName]: number } }`: post after
   every meaningful change. `summary` is plain English the agent reads to narrate and to answer
   "who's winning?"; `phase` is one of `meta.phases`.
@@ -106,7 +149,7 @@ alongside the humans, generated prompts, judging or commentary. `id` is your own
 the host just echoes it. A result takes a few seconds, so ask early (when a round opens, not when
 it closes) and keep your own timeout of about 15 s. If `ok` is false, the result never comes, or
 `data` has the wrong shape, keep going with fallback content you wrote into tv.html (canned
-answers, an emoji instead of an image). The game must be fully playable with every AI call
+answers, a text glyph or inline SVG instead of an image). The game must be fully playable with every AI call
 failing. The host makes the call, so the game needs no API key. Never reveal a bot's identity on a
 phone screen unless the game wants it known.
 
@@ -175,10 +218,11 @@ tap, so send a fresh screen for each new question.
 - One complete HTML document, fully self-contained: inline `<style>` and `<script>` only. No
   external scripts, stylesheets, fonts, images, CDNs or URLs of any kind (the one exception: an
   image url returned in `ai_result`); no fetch, XMLHttpRequest, WebSocket, EventSource, `import()`,
-  localStorage or cookies (the sandbox blocks them). Draw with CSS, inline SVG or canvas; emoji are fine.
-- It is shown on a television seen from 3 metres: dark theme, high contrast, body text no smaller
-  than about 4vh, headlines about 10vh or more, size everything in vh/vw, no scrolling, one idea on
-  screen at a time.
+  localStorage or cookies (the sandbox blocks them). Draw with CSS, inline SVG or canvas; no emoji
+  (see "Look and voice rules").
+- It is shown on a television seen from 3 metres: one palette from "Look and voice rules", high
+  contrast, exactly three text sizes (display >= 10vh, body >= 4vh, tiny >= 2.4vh), size everything
+  in vh/vw, no scrolling, one idea on screen at a time.
 - Before init arrives, show a short "waiting" title. All game logic lives in tv.html; the host does
   nothing but forward messages.
 - Be robust: ignore unknown message types and malformed input, never assume a player id is known,

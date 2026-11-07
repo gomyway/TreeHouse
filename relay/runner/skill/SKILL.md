@@ -45,19 +45,60 @@ These override anything in TASK.md that conflicts with them. `reference/whos-the
 
 The harness fails a game that leaves any joined player without an actionable screen.
 
+## Look and voice rules (non-negotiable)
+
+These set how the TV page looks and how the host talks. The harness checks them and prints a `look` line.
+
+- **One palette, picked for the theme.** Choose ONE of the six below, write its name in
+  `meta.palette`, define its four tokens at `:root` and colour everything with them, plus pure
+  black or white for shadows. One accent only.
+
+  | Palette | `--bg` | `--ink` | `--muted` | `--accent` | Mood |
+  |---|---|---|---|---|---|
+  | Noir | `#0e0e10` ink-black | `#e8e0cf` bone | `#6e7480` slate | `#e5322d` signal red | crime, bluffing, accusations, tension |
+  | Broadcast | `#0b1630` deep navy | `#ffffff` white | `#8b97ab` steel | `#ffb000` amber | quiz show, trivia, a live studio |
+  | Paper | `#f2ece0` warm off-white | `#16161a` near-black | `#77736b` grey | `#2747d6` cobalt | words, drawing, calm daytime (the light theme) |
+  | Arcade | `#08090b` near-black | `#ffffff` white | `#7c8088` grey | `#00e5ff` electric cyan | reflexes, speed, motion, retro |
+  | Campfire | `#22170f` dark umber | `#f5ead6` cream | `#b08a4a` ochre | `#ff6a1f` ember orange | stories, confessions, a cosy night |
+  | Lagoon | `#08343a` deep teal | `#efe2c4` sand | `#7f9a9c` sea-grey | `#ff6f5e` coral | holidays, silliness, light-hearted |
+
+- **Forbidden:** the purple/lavender/yellow/mint default family (`#b98cff`, `#f6f3ff`, `#ffd23f`,
+  `#3ddc84`, `#5fe0c0` and near neighbours), rainbow gradients, more than one accent.
+- **Corners:** border-radius 0 to 1.2vh. Never pills (`99px`, `999px`); the countdown ring is the
+  only round thing.
+- **Three text sizes in the whole page**, each defined once at `:root` and used everywhere:
+  `--display` (≥10vh), `--body` (≥4vh), `--tiny` (≥2.4vh). Every `font-size` is one of the three.
+- **No bold.** No `font-weight` above 500 anywhere, headings included (`h1`, `b` and `strong` are bold
+  by default: set them to 500). Hierarchy comes from size, capitals and colour.
+- **One header per screen**, never an eyebrow label stacked on it (no small "ROUND 2" line above the
+  headline); put the round count below or in a corner.
+- **Font:** `font-family: "Satoshi", system-ui, sans-serif`. The host may inject Satoshi; the
+  fallback is fine.
+- **No emoji as UI.** Emoji may appear only inside player-typed content echoed back. None in static
+  markup, CSS, buttons, headers, phone screens or `say` lines. Draw shapes with text characters
+  (● ▲ ★ ✓ ×) or inline SVG.
+- **Voice cadence.** `say` lines are 12 words or fewer (player names not counted), one per beat,
+  at most one exclamation mark per line, no stacked punctuation (`!!`, `?!`). The TV shows the
+  gist; the host says the rest.
+
+The harness fails a forbidden purple-family colour, any `font-weight` of 600 or more, more than 2
+emoji anywhere in tv.html, a `say` line over 12 words and an unknown `meta.palette`. It warns on more
+than 6 non-grey colours, more than 3 font sizes, pill radii, a missing `meta.palette` and 2 or more
+exclamation marks in one line.
+
 ## Workflow
 
 1. Read `TASK.md`, `skill/CONTRACT.md` and `reference/sample.html`.
 2. Decide the game in a few lines: phases, who holds which role each round and what every other
    player does meanwhile, what each phone shows per phase, how scoring works, how a round ends
-   (timer AND everyone answered), what the TV shows from 3 m away.
+   (timer AND everyone answered), what the TV shows from 3 m away, which palette fits the theme.
 3. Write `meta.json` and `tv.html` in the job directory (not in `reference/`). Build the game
    TASK.md asks for, with every feature it names; the reference shows the bridge and the TV
    sizing, it is not a template to reskin. Write `tv.html` whole in one go, then fix it with edits.
 4. Run `node harness/smoke.mjs`. It prints `SMOKE PASS` or `SMOKE FAIL` with reasons.
 5. Fix every failure and re-run. Repeat until it passes. Read the `warn:` lines too and fix the
    ones that are real (a phase name missing from meta.phases, no `say`, a late joiner with no screen).
-6. Once green, make it fun: a clear hook in the first 5 seconds, a short spoken line (`say`) per
+6. Once green, make it fun: a clear hook in the first 5 seconds, a short spoken line (`say`, 12 words or fewer) per
    round start and result, a reveal moment, a winner. Re-run the harness after every change.
 7. Re-read `TASK.md` and check every requested feature (rounds, answer choices, timers, scoring,
    AI use) is in `tv.html`, and that the design rules above hold. Add what is missing, re-run the harness.
@@ -71,7 +112,9 @@ button / types short text on every input screen, adds a 4th player mid-game, and
 (or `done`), going silent after an input, malformed messages, any network/external resource, any
 joined player (the late joiner included) never getting an actionable screen, and fewer than 2
 actionable screens in total. It warns when phone buttons offer named characters who are not
-players (invented NPCs). Its `participation` line shows how many actionable screens each player got.
+players (invented NPCs). It also runs the look and voice checks above (palette, colours, weights,
+sizes, radii, emoji, `say` length) and prints a `look` line per pass. Its `participation` line
+shows how many actionable screens each player got.
 `node harness/smoke.mjs --verbose` prints every message both ways.
 
 ## Hard rules (also in CONTRACT.md)
@@ -80,6 +123,6 @@ players (invented NPCs). Its `participation` line shows how many actionable scre
   XMLHttpRequest, WebSocket, EventSource, `import()`, localStorage or cookies.
 - Never call a model or any API. AI goes only through the bridge: `ai`, `ai_image`, `bot_answer`
   (answered by `ai_result`). The game must be fully playable with every AI call failing.
-- Sized for a TV seen from 3 metres: dark, high contrast, body text >= 4vh, headlines ~10vh+,
-  vh/vw units, no scrolling.
+- Sized for a TV seen from 3 metres: one palette from "Look and voice rules", high contrast, the
+  three text sizes (display >= 10vh, body >= 4vh, tiny >= 2.4vh), vh/vw units, no scrolling.
 - Do not touch `harness/`, `skill/` or `reference/`. You have no network access other than the model.

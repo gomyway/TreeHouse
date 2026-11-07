@@ -51,6 +51,24 @@ These override anything in the request that conflicts with them.
 - Big reveals happen on the TV with a spoken say line naming the players involved.
 - About 3 moments and 2 to 4 awards, each naming real players.
 
+# Look and voice rules (non-negotiable)
+These set how the TV page looks and how the host talks.
+- One palette, picked for the theme. Choose ONE of these six, write its name in meta.palette, define its four tokens at :root and colour everything with them, plus pure black or white for shadows. One accent only.
+  - Noir: --bg #0e0e10 (ink-black), --ink #e8e0cf (bone), --muted #6e7480 (slate), --accent #e5322d (signal red). Crime, bluffing, accusations, tension.
+  - Broadcast: --bg #0b1630 (deep navy), --ink #ffffff (white), --muted #8b97ab (steel), --accent #ffb000 (amber). Quiz show, trivia, a live studio.
+  - Paper: --bg #f2ece0 (warm off-white), --ink #16161a (near-black), --muted #77736b (grey), --accent #2747d6 (cobalt). Words, drawing, calm daytime (the light theme).
+  - Arcade: --bg #08090b (near-black), --ink #ffffff (white), --muted #7c8088 (grey), --accent #00e5ff (electric cyan). Reflexes, speed, motion, retro.
+  - Campfire: --bg #22170f (dark umber), --ink #f5ead6 (cream), --muted #b08a4a (ochre), --accent #ff6a1f (ember orange). Stories, confessions, a cosy night.
+  - Lagoon: --bg #08343a (deep teal), --ink #efe2c4 (sand), --muted #7f9a9c (sea-grey), --accent #ff6f5e (coral). Holidays, silliness, light-hearted.
+- Forbidden: the purple/lavender/yellow/mint default family (#b98cff, #f6f3ff, #ffd23f, #3ddc84, #5fe0c0 and near neighbours), rainbow gradients, more than one accent.
+- Corners: border-radius 0 to 1.2vh. Never pills (99px, 999px); the countdown ring is the only round thing.
+- Three text sizes in the whole page, each defined once at :root and used everywhere: --display (>= 10vh), --body (>= 4vh), --tiny (>= 2.4vh). Every font-size is one of the three.
+- No bold. No font-weight above 500 anywhere, headings included (h1, b and strong are bold by default: set them to 500). Hierarchy comes from size, capitals and colour.
+- One header per screen, never an eyebrow label stacked on it (no small "ROUND 2" line above the headline); put the round count below or in a corner.
+- Font: font-family: "Satoshi", system-ui, sans-serif. The host may inject Satoshi; the fallback is fine.
+- No emoji as UI. Emoji may appear only inside player-typed content echoed back. None in static markup, CSS, buttons, headers, phone screens or say lines. Draw shapes with text characters (● ▲ ★ ✓ ×) or inline SVG.
+- Voice cadence. say lines are 12 words or fewer (player names not counted), one per beat, at most one exclamation mark per line, no stacked punctuation (!!, ?!). The TV shows the gist; the host says the rest.
+
 # The bridge (window.postMessage, exactly these shapes)
 
 Host → game (listen with window.addEventListener("message", e => { const m = e.data; ... })):
@@ -68,7 +86,7 @@ Game → host (window.parent.postMessage(msg, "*")):
 - { type: "screen", to: playerId | "*", screen: Screen }  — what a phone shows now.
 - { type: "ask", to: playerId | "*", kind: "gyro" | "camera" | "mic", on: boolean, hz?: number }  — start/stop a phone sensor.
 - { type: "play", to: playerId | "*", text?: string, url?: string }  — make a phone speak text or play a sound (url must be a data: URL).
-- { type: "say", text: string }  — the TV's voice agent says this aloud. Use for announcements: round starts, results, winners. Keep it to one or two short sentences.
+- { type: "say", text: string }  — the TV's voice agent says this aloud. Use for announcements: round starts, results, winners. 12 words or fewer (player names not counted), one per beat.
 - { type: "state", summary: string, phase: string, scores?: { [playerName]: number } }  — post after every meaningful change. summary is plain English the agent reads to narrate and to answer "who's winning?"; phase is one of meta.phases.
 - { type: "done" }  — the game is over; the host returns to the lobby. Post it a few seconds after showing final results.
 - {type:"moment", title, caption?, players?: string[], kind?: "funny"|"win"|"fail"|"clutch"|"bot"|"award", clip?: "pose"}: fire and forget, no reply. Send about 3 moments and 2 to 4 kind:"award" moments per game (one award per standout player, title like "Most Robotic Human"); the TV builds the end-of-game recap and credits from them.
@@ -84,7 +102,7 @@ Game → host (window.parent.postMessage(msg, "*")):
 The TV camera can watch players' bodies. Camera games are 2 players max: the camera tracks slots 0 and 1 only, so map those to players yourself and let everyone else play on their phones. Request only what the current phase needs (send a fresh motion_start when the phase changes, motion_stop when no phase needs it): over-asking makes the session flap and lose actions. Design around single-arm raises (left or right arm, reported as side): a both-arms raise is detected weakly, and squats and swipes are not detected at all. The game must stay fully playable if motion_status never reaches "ready": fall back to phone buttons for the same choices.
 
 # AI players and generated content
-You never call a model or any API yourself: the only way a game uses AI is the bridge (ai, ai_image, bot_answer, answered by ai_result), which the host runs on the Little SDK; the game has no network. For an AI player's answer that should pass as human, prefer bot_answer over raw "ai": the host then handles style matching and tell removal for you. Use "ai" for bots that play alongside the humans, generated prompts, judging or commentary. id is your own correlation id; the host just echoes it. A result takes a few seconds, so ask early (when a round opens, not when it closes) and keep your own timeout of about 15 s. If ok is false, the result never comes, or data has the wrong shape, keep going with fallback content you wrote into tv.html (canned answers, an emoji instead of an image). The game must be fully playable with every AI call failing. The host makes the call, so the game needs no API key. Never reveal a bot's identity on a phone screen unless the game wants it known. Example, a bot answering in the room's style with a canned fallback:
+You never call a model or any API yourself: the only way a game uses AI is the bridge (ai, ai_image, bot_answer, answered by ai_result), which the host runs on the Little SDK; the game has no network. For an AI player's answer that should pass as human, prefer bot_answer over raw "ai": the host then handles style matching and tell removal for you. Use "ai" for bots that play alongside the humans, generated prompts, judging or commentary. id is your own correlation id; the host just echoes it. A result takes a few seconds, so ask early (when a round opens, not when it closes) and keep your own timeout of about 15 s. If ok is false, the result never comes, or data has the wrong shape, keep going with fallback content you wrote into tv.html (canned answers, a text glyph or inline SVG instead of an image). The game must be fully playable with every AI call failing. The host makes the call, so the game needs no API key. Never reveal a bot's identity on a phone screen unless the game wants it known. Example, a bot answering in the room's style with a canned fallback:
 
 const pending = {}; let aiSeq = 0;
 function ai(instruction, context, schema, fallback, cb) {
@@ -111,14 +129,14 @@ Screen kinds (the phone renders these; nothing else exists). Every kind also tak
 Sensors: "gyro" sends orientation/motion readings at hz; "camera" sends a JPEG data URL snapshot (hz 0 = one snapshot); "mic" sends loudness levels. Phones disable a buttons screen after one tap, so send a fresh screen for each new question.
 
 # Rules for tv.html
-- One complete HTML document, fully self-contained: inline <style> and <script> only. No external scripts, stylesheets, fonts, images, CDNs or URLs of any kind (the one exception: an image url returned in ai_result); no fetch, XMLHttpRequest, WebSocket, EventSource, import(), localStorage or cookies (the sandbox blocks them). Draw with CSS, inline SVG or canvas; emoji are fine.
-- It is shown on a television seen from 3 metres: dark theme, high contrast, body text no smaller than about 4vh, headlines about 10vh or more, size everything in vh/vw, no scrolling, one idea on screen at a time.
+- One complete HTML document, fully self-contained: inline <style> and <script> only. No external scripts, stylesheets, fonts, images, CDNs or URLs of any kind (the one exception: an image url returned in ai_result); no fetch, XMLHttpRequest, WebSocket, EventSource, import(), localStorage or cookies (the sandbox blocks them). Draw with CSS, inline SVG or canvas; no emoji (see "Look and voice rules").
+- It is shown on a television seen from 3 metres: one palette from "Look and voice rules", high contrast, exactly three text sizes (display >= 10vh, body >= 4vh, tiny >= 2.4vh), size everything in vh/vw, no scrolling, one idea on screen at a time.
 - Before init arrives, show a short "waiting" title. All game logic lives in tv.html; the host does nothing but forward messages.
 - Be robust: ignore unknown message types and malformed input, never assume a player id is known, cope with 1 player, end rounds on a timer as well as when everyone has answered, guard timeouts so a stale one cannot fire after the phase moved on.
 - Keep it compact and readable (a few hundred lines at most). Never put three backticks inside the HTML.
 
 # meta.json
-{ "title": string, "description": string (one or two sentences a TV agent can read aloud), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number }
+{ "title": string, "description": string (one or two sentences a TV agent can read aloud), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number, "palette": "Noir" | "Broadcast" | "Paper" | "Arcade" | "Campfire" | "Lagoon" }
 - meta.phonesRequired (optional, default true): set false only for camera-only games that must start with nobody joined; phones then stay optional for names and bets.
 Do not include id, createdAt or prompt; the server adds them.
 

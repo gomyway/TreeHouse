@@ -5,24 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pick A or B</title>
 <style>
-  /* Seen from 3 m: nothing smaller than ~4vh, headlines ~12vh, high contrast, dark. */
-  :root { --bg: #0b0d12; --fg: #f4f6fb; --dim: #8a93a6; --a: #ff6b5b; --b: #4fb3ff; --win: #ffd23f; }
+  /* Seen from 3 m. Palette "Broadcast" (meta.palette): four tokens, nothing else but pure black/white.
+     Three text sizes, no weight above 500, radii <= 1.2vh, no emoji. */
+  :root {
+    --bg: #0b1630; --ink: #ffffff; --muted: #8b97ab; --accent: #ffb000;
+    --display: 10vh; --body: 5vh; --tiny: 3vh;
+  }
   * { box-sizing: border-box; margin: 0; }
-  html, body { height: 100%; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
-  #app { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5vh; padding: 6vh 6vw; text-align: center; }
-  .kicker { font-size: 4vh; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
-  h1 { font-size: 11vh; line-height: 1.05; font-weight: 800; }
+  html, body { height: 100%; background: var(--bg); color: var(--ink); font-family: "Satoshi", system-ui, sans-serif; font-weight: 400; overflow: hidden; }
+  #app { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4vh; padding: 6vh 6vw; text-align: center; }
+  /* The round label sits under the screen, never as an eyebrow over the header. */
+  .kicker { order: 1; font-size: var(--tiny); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  h1 { font-size: var(--display); line-height: 1.05; font-weight: 500; }
   .opts { display: flex; gap: 4vw; width: 100%; justify-content: center; }
-  .opt { flex: 1; max-width: 40vw; border-radius: 3vh; padding: 5vh 3vw; font-size: 7vh; font-weight: 800; }
-  .opt small { display: block; font-size: 4vh; font-weight: 600; opacity: .85; margin-top: 1.5vh; }
-  .opt.a { background: var(--a); color: #1a0705; } .opt.b { background: var(--b); color: #04121d; }
-  .opt.win { outline: 1.2vh solid var(--win); outline-offset: 1vh; }
-  .big { font-size: 9vh; font-weight: 800; }
-  .row { font-size: 5vh; display: flex; gap: 3vw; flex-wrap: wrap; justify-content: center; }
-  .chip { padding: 1vh 2vw; border-radius: 99px; background: #1c2130; }
-  .chip.done { background: #2b6b3f; }
-  .timer { font-size: 6vh; color: var(--win); font-variant-numeric: tabular-nums; }
-  ol { font-size: 6vh; text-align: left; list-style: none; padding: 0; } ol li { padding: .5vh 0; }
+  .opt { flex: 1; max-width: 40vw; border-radius: 1.2vh; padding: 3vh 3vw; font-size: var(--display); font-weight: 500; line-height: 1; border: .6vh solid var(--muted); }
+  .opt small { display: block; font-size: var(--body); font-weight: 400; margin-top: 1.5vh; text-transform: uppercase; letter-spacing: .04em; }
+  .opt.a { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  .opt.b { background: transparent; color: var(--ink); }
+  .opt.win { outline: 1.2vh solid var(--ink); outline-offset: 1vh; }
+  .big { font-size: var(--display); font-weight: 500; }
+  .row { font-size: var(--body); display: flex; gap: 2vw; flex-wrap: wrap; justify-content: center; color: var(--muted); }
+  .chip { padding: .6vh 1.6vw; border-radius: .8vh; border: .3vh solid var(--muted); color: var(--ink); }
+  .chip.done { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .timer { font-size: var(--body); color: var(--accent); font-variant-numeric: tabular-nums; }
+  ol { font-size: var(--body); text-align: left; list-style: none; padding: 0; } ol li { padding: .5vh 0; }
 </style>
 </head>
 <body>

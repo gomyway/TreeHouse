@@ -15,6 +15,23 @@
 // screen (buttons/text/pad/custom) and the pass must send at least 2; both are warnings only when
 // meta.phonesRequired is false. Phone buttons that offer invented characters instead of players warn.
 //
+// Look and voice (SKILL.md "Look and voice rules"), read from tv.html's CSS (<style> blocks, style="..."
+// attributes anywhere in the file, SVG fill/stroke/stop-color attributes) and from the say lines:
+//   FAIL  a colour within ~24 RGB of the purple default family (#b98cff #f6f3ff #ffd23f #3ddc84 #5fe0c0,
+//         3/4/8-digit hex, rgb() and hsl() included); WARN above 6 distinct non-greyscale colours.
+//   FAIL  font-weight >= 600 / bold / bolder (CSS, inline styles, font shorthand, .style.fontWeight);
+//         WARN when <h1>-<h6>, <b>, <strong>, <th> are used without a font-weight <= 500 rule for them;
+//         WARN above 3 distinct font-size values (var() resolved through :root custom properties;
+//         rules and elements whose class contains "ring", the countdown ring, are ignored).
+//   WARN  border-radius >= 50px (99px/999px pills) outside a "ring" selector/element.
+//   FAIL  more than 2 emoji in the raw file. Heuristic: every grapheme with an emoji-presentation code
+//         point or U+FE0F anywhere in tv.html counts (markup, CSS, JS strings, comments); nothing is
+//         subtracted, since player-typed text arrives at runtime and is never in the file. Text glyphs
+//         such as ● ▲ ★ ✓ × are not emoji. 2 allows one decorative glyph pair.
+//   FAIL  a say line above 12 words (player names not counted); WARN on 2+ exclamation marks or stacked !? in one line.
+//   FAIL  meta.palette not one of Noir, Broadcast, Paper, Arcade, Campfire, Lagoon; WARN when absent.
+// Each pass prints a "look" line: palette, colours, font sizes, max weight, emoji, longest say.
+//
 // Exit 0 and a final "SMOKE PASS" line when everything holds; exit 1 and "SMOKE FAIL" otherwise.
 
 import { readFileSync, existsSync } from "node:fs";
@@ -97,6 +114,138 @@ if (html) {
   if (html.length > 200_000) warn(`tv.html is ${Math.round(html.length / 1024)} KB; keep it compact`);
 }
 
+// ---------- look checks (SKILL.md "Look and voice rules") ----------
+// Kept apart from `failures` so a look failure still lets the play-through run (it measures say lines).
+const PALETTES = ["Noir", "Broadcast", "Paper", "Arcade", "Campfire", "Lagoon"];
+const lookFails = [], lookWarns = [];
+const look = analyzeLook(html ?? "", meta);
+function analyzeLook(src, meta) {
+  const lf = (s) => { if (!lookFails.includes(s)) lookFails.push(s); };
+  const lw = (s) => { if (!lookWarns.includes(s)) lookWarns.push(s); };
+  const out = { palette: "none", colours: 0, sizes: [], maxWeight: 400, emoji: 0 };
+  if (meta && typeof meta === "object") {
+    if (meta.palette === undefined) lw(`meta.palette is missing: pick one of ${PALETTES.join(", ")} and use its four tokens`);
+    else if (!PALETTES.some((p) => p.toLowerCase() === String(meta.palette).toLowerCase())) lf(`meta.palette ${JSON.stringify(meta.palette)} is not one of ${PALETTES.join(", ")}`);
+    else out.palette = meta.palette;
+  }
+  if (!src) return out;
+  const isRing = (s) => /ring/i.test(s);
+  // Rules from <style> blocks (innermost {...} only, so @media bodies still yield their rules).
+  const rules = [];
+  for (const m of src.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+    const css = m[1].replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const r of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) rules.push({ sel: r[1].trim(), body: r[2], ring: isRing(r[1]) });
+  }
+  // style="..." attributes anywhere (static markup and JS template strings); ring = the element's class says so.
+  for (const m of src.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
+    const start = src.lastIndexOf("<", m.index), tag = src.slice(start, src.indexOf(">", m.index + m[0].length) + 1);
+    const cls = (tag.match(/\bclass\s*=\s*["']([^"']*)/i) ?? [])[1] ?? "";
+    rules.push({ sel: "inline", body: m[1] ?? m[2], ring: isRing(cls) });
+  }
+  const decls = [];
+  for (const r of rules) for (const d of r.body.split(";")) {
+    const i = d.indexOf(":"); if (i < 0) continue;
+    decls.push({ sel: r.sel, ring: r.ring, prop: d.slice(0, i).trim().toLowerCase(), value: d.slice(i + 1).trim() });
+  }
+  const vars = new Map(decls.filter((d) => d.prop.startsWith("--")).map((d) => [d.prop, d.value]));
+  const resolve = (v, n = 0) => n > 4 ? v : v.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\)/g, (_, k, fb) => vars.has(k) ? resolve(vars.get(k), n + 1) : (fb ?? k));
+
+  // Colours.
+  const FORBIDDEN = ["b98cff", "f6f3ff", "ffd23f", "3ddc84", "5fe0c0"].map((h) => [h, [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16))]);
+  const hsl2rgb = (h, s, l) => { s /= 100; l /= 100; const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    return [0, 8, 4].map((n) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))))); };
+  const colours = (v) => {
+    const out = [];
+    for (const m of v.matchAll(/#([0-9a-f]{3,8})\b/gi)) {
+      let h = m[1].toLowerCase();
+      if (h.length === 3 || h.length === 4) h = [...h.slice(0, 3)].map((c) => c + c).join("");
+      else if (h.length === 6 || h.length === 8) h = h.slice(0, 6); else continue;
+      out.push({ tok: m[0], rgb: [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) });
+    }
+    for (const m of v.matchAll(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/gi)) out.push({ tok: m[0] + ")", rgb: [m[1], m[2], m[3]].map(Number) });
+    for (const m of v.matchAll(/hsla?\(\s*([\d.]+)(?:deg)?[\s,]+([\d.]+)%[\s,]+([\d.]+)%/gi)) out.push({ tok: m[0] + ")", rgb: hsl2rgb(+m[1], +m[2], +m[3]) });
+    return out;
+  };
+  const chroma = (c) => Math.max(...c) - Math.min(...c);
+  const hex = (c) => "#" + c.map((x) => x.toString(16).padStart(2, "0")).join("");
+  const found = [...decls.flatMap((d) => colours(d.value)),
+    ...[...src.matchAll(/\b(?:fill|stroke|stop-color|color)\s*=\s*["']([^"']*)["']/gi)].flatMap((m) => colours(m[1]))];
+  const tints = new Set();
+  for (const c of found) {
+    if (chroma(c.rgb) > 8) for (const [h, f] of FORBIDDEN) if (Math.hypot(...c.rgb.map((x, i) => x - f[i])) <= 24) lf(`forbidden default-palette colour ${c.tok} (the #${h} family): use the chosen palette's tokens`);
+    if (chroma(c.rgb) > 16) tints.add(hex(c.rgb));
+  }
+  out.colours = tints.size;
+  if (tints.size > 6) lw(`${tints.size} distinct non-grey colours in CSS (${[...tints].slice(0, 8).join(" ")}): one palette is 4 tokens, one accent`);
+  for (const t of ["--bg", "--ink", "--muted", "--accent"]) if (!vars.has(t)) { lw("the palette tokens --bg, --ink, --muted, --accent are not all defined at :root"); break; }
+
+  // Weights.
+  const weightOf = (v) => { v = v.toLowerCase(); if (/\bbolder\b/.test(v)) return 900; if (/\bbold\b/.test(v)) return 700;
+    const n = v.match(/(?:^|\s)([1-9]00)(?=\s|$)/); return n ? +n[1] : null; };
+  const heavy = new Set();
+  for (const d of decls) {
+    const w = d.prop === "font-weight" ? weightOf(resolve(d.value)) ?? 400 : d.prop === "font" ? weightOf(resolve(d.value)) : null;
+    if (w === null) continue;
+    out.maxWeight = Math.max(out.maxWeight, w);
+    if (w >= 600) heavy.add(`${d.sel.slice(0, 40)} { ${d.prop}: ${d.value} }`);
+  }
+  for (const m of src.matchAll(/\.style\.fontWeight\s*=\s*["'`]([^"'`]+)/g)) {
+    const w = weightOf(m[1]); if (w !== null) { out.maxWeight = Math.max(out.maxWeight, w); if (w >= 600) heavy.add(`.style.fontWeight = "${m[1]}"`); }
+  }
+  if (heavy.size) lf(`font-weight above 500: ${[...heavy].slice(0, 4).join("; ")} (no bold: hierarchy from size, caps and colour)`);
+  const boldTags = new Set([...src.matchAll(/<(h[1-6]|b|strong|th)[\s>]/gi)].map((m) => m[1].toLowerCase()));
+  for (const t of boldTags) {
+    const re = new RegExp(`(^|[\\s,>+~(])(${t}|\\*)(?![\\w-])`, "i");
+    const reset = rules.some((r) => r.sel !== "inline" && re.test(r.sel) && /font-weight\s*:\s*(normal|lighter|[1-5]00)\b/i.test(r.body));
+    if (!reset) lw(`<${t}> is bold by default: set font-weight: 500 (or 400) on it in CSS`);
+  }
+
+  // Font sizes.
+  const sizes = new Set();
+  for (const d of decls) {
+    if (d.ring) continue;
+    let v = null;
+    if (d.prop === "font-size") v = resolve(d.value).trim();
+    else if (d.prop === "font") v = (resolve(d.value).match(/(\d*\.?\d+(?:vh|vw|vmin|vmax|px|rem|em|%|pt))/) ?? [])[1] ?? null;
+    if (!v || /^(inherit|initial|unset|revert)$/i.test(v)) continue;
+    sizes.add(v.replace(/\s+/g, " "));
+    const vh = v.match(/^(\d*\.?\d+)vh$/); if (vh && +vh[1] < 2.4) lw(`font-size ${v} is below the 2.4vh floor`);
+  }
+  out.sizes = [...sizes];
+  if (sizes.size > 3) lw(`${sizes.size} distinct font sizes (${[...sizes].slice(0, 8).join(", ")}): use exactly three, var(--display), var(--body), var(--tiny)`);
+  if (!["--display", "--body", "--tiny"].every((k) => vars.has(k))) lw("the type scale --display, --body, --tiny is not all defined at :root");
+
+  // Radii.
+  const pills = new Set();
+  for (const d of decls) {
+    if (d.ring || !/^border(-[a-z]+)*-radius$/.test(d.prop)) continue;
+    for (const m of resolve(d.value).matchAll(/(\d*\.?\d+)px/g)) if (+m[1] >= 50) pills.add(`${d.sel.slice(0, 40)} { ${d.prop}: ${d.value} }`);
+  }
+  if (pills.size) lw(`pill radius: ${[...pills].slice(0, 4).join("; ")} (radii 0 to 1.2vh; only the countdown ring is round)`);
+
+  // Emoji (see the header for the heuristic).
+  const seg = new Intl.Segmenter("en", { granularity: "grapheme" });
+  const emo = [];
+  for (const { segment } of seg.segment(src)) if (/\p{Emoji_Presentation}|️/u.test(segment) && !/^[\d#*]$/.test(segment)) emo.push(segment);
+  out.emoji = emo.length;
+  if (emo.length > 2) lf(`${emo.length} emoji in tv.html (${[...new Set(emo)].slice(0, 10).join(" ")}): no emoji as UI, use text glyphs or inline SVG (2 allowed)`);
+  return out;
+}
+// Player names are not counted: the design rules require naming the players, and a list of them
+// grows with the room (2 to 12), so the 12-word budget is for everything else.
+const NAMES = new Set([...PLAYERS, LATE].map((p) => p.name.toLowerCase()));
+const sayVerdict = (texts, pfail, pwarn) => {
+  let longest = { n: 0, text: "" };
+  for (const t of texts) {
+    const n = t.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w) && !NAMES.has(w.replace(/('s)?[^\p{L}\p{N}]*$/u, "").replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase())).length;
+    if (n > longest.n) longest = { n, text: t };
+    if (n > 12) pfail(`say line of ${n} words, player names not counted (max 12): "${t.slice(0, 120)}"`);
+    if ((t.match(/!/g) ?? []).length >= 2) pwarn(`say line with ${(t.match(/!/g) ?? []).length} exclamation marks (max 1): "${t.slice(0, 120)}"`);
+    else if (/[!?]{2,}/.test(t)) pwarn(`say line with stacked punctuation: "${t.slice(0, 120)}"`);
+  }
+  return longest;
+};
+
 // ---------- one simulated session ----------
 function runPass(aiOk) {
   return new Promise((done) => {
@@ -120,6 +269,7 @@ function runPass(aiOk) {
     const NAME_RES = [...PLAYERS, LATE].map((p) => new RegExp(`\\b${p.name}\\b`, "i"));
     const realStart = Date.now();
     const timers = [];
+    const says = [];                        // every say text, for the voice cadence check
 
     const vc = new VirtualConsole();
     vc.on("jsdomError", (e) => {
@@ -245,7 +395,7 @@ function runPass(aiOk) {
           break;
         }
         case "moment": stats.moment = (stats.moment || 0) + 1; if (typeof m.title !== "string") pfail("moment.title must be a string"); break;
-        case "say": stats.say++; if (typeof m.text !== "string") pfail("say.text must be a string"); break;
+        case "say": stats.say++; if (typeof m.text !== "string") pfail("say.text must be a string"); else says.push(m.text); break;
         case "ask": stats.ask++; if (!["gyro", "camera", "mic"].includes(m.kind)) pfail(`ask.kind must be gyro|camera|mic, got ${JSON.stringify(m.kind)}`); break;
         case "play": stats.play++; if (m.url && !/^data:/.test(m.url)) pfail("play.url must be a data: URL"); break;
         case "done": gotDone = true; timers.push(setTimeout(() => finish("done"), 200)); break;
@@ -372,10 +522,11 @@ function runPass(aiOk) {
         const s = `only ${actionableTotal} actionable screen(s) sent over the whole pass; players need a fresh action every round`;
         phonesOptional ? pwarn(s) : pfail(s);
       }
+      const longestSay = sayVerdict(says, pfail, pwarn);
       if (npcNames.size) pwarn(`phones vote on named characters who are not players (${[...npcNames].slice(0, 4).join(", ")}): never invent NPC suspects or contestants, the room is the cast`);
       try { window.close(); } catch {}
       const participation = joined.map((p) => `${p.name} ${actionable.get(p.id)}`).join(", ") + `; ${actionableTotal} actionable screens, ${namedActionable} naming a player`;
-      done({ tag, why, pf, pw, stats, participation, gameS: Math.round(gameMs / 1000), realS: ((Date.now() - realStart) / 1000).toFixed(1), cycles, inputPhase, minAnswered, gotDone });
+      done({ tag, why, pf, pw, stats, participation, longestSay, gameS: Math.round(gameMs / 1000), realS: ((Date.now() - realStart) / 1000).toFixed(1), cycles, inputPhase, minAnswered, gotDone });
     }
 
     // ---------- the session script ----------
@@ -404,9 +555,13 @@ if (!failures.length) {
 for (const p of passes) {
   log(`pass ${p.tag}: ended by ${p.why} after ${p.gameS} s game time (${p.realS} s real); states ${p.stats.state}, screens ${p.stats.screen}, says ${p.stats.say}, inputs sent ${p.stats.inputs}, ai ${p.stats.ai}, ai_image ${p.stats.ai_image}, bot_answer ${p.stats.bot_answer}, motion_start ${p.stats.motion_start}; input phase "${p.inputPhase}" entered ${p.cycles}x; done ${p.gotDone}`);
   log(`  participation ${p.tag}: ${p.participation}`);
+  log(`  look ${p.tag}: palette ${look.palette}, ${look.colours} non-grey colours, ${look.sizes.length} font sizes (${look.sizes.join(" ") || "none"}), max weight ${look.maxWeight}, emoji ${look.emoji}, longest say ${p.longestSay.n} words${p.longestSay.text ? ` "${p.longestSay.text.slice(0, 80)}"` : ""}`);
   for (const f of p.pf) failures.push(`[${p.tag}] ${f}`);
   for (const w of p.pw) warn(`[${p.tag}] ${w}`);
 }
+if (!passes.length && html) log(`  look: palette ${look.palette}, ${look.colours} non-grey colours, ${look.sizes.length} font sizes, max weight ${look.maxWeight}, emoji ${look.emoji}`);
+for (const f of lookFails) failures.push(`look: ${f}`);
+for (const w of lookWarns) warn(`look: ${w}`);
 for (const w of warnings) log(`warn: ${w}`);
 if (failures.length) {
   log("SMOKE FAIL");

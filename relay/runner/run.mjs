@@ -162,7 +162,7 @@ async function prepareJobDir(job, log) {
 function runAgent(dir, log, onTick) {
   return new Promise((resolveRun) => {
     const name = `lr-author-${dir.split("/").pop().replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 40)}-${Date.now() % 100000}`;
-  const task = "You are building a party game bundle in /job for the people in the room. Read /job/TASK.md, then /job/skill/SKILL.md (its Design rules are non-negotiable), /job/skill/CONTRACT.md and /job/reference/sample.html; read /job/reference/whos-the-bot.html for how to tier roles. " +
+  const task = "You are building a party game bundle in /job for the people in the room. Read /job/TASK.md, then /job/skill/SKILL.md (its Design rules are non-negotiable), /job/skill/CONTRACT.md and /job/reference/sample.html; read /job/reference/whos-the-bot.html for how to tier roles only: it predates the look and voice rules, so never copy its styling, weights, emoji or long say lines; /job/reference/sample.html is the look reference. " +
     "Build the game TASK.md asks for, with every feature it names, cast with the joined players: their real names, an actionable phone screen for every player every round, rotating active roles with everyone else judging/betting/voting, no invented player characters or NPC contestants. The sample shows the bridge and TV sizing only, do not reskin it. " +
     "Write /job/meta.json and /job/tv.html (write tv.html whole in one go, then edit). Run `node harness/smoke.mjs` from /job and fix every failure until it prints SMOKE PASS. " +
     "Then re-read TASK.md and the design rules, check each is met in tv.html, add what is missing, and improve the fun (clear hook, say lines, reveal naming players, winner), re-running the harness after each change. Finish only when it passes.";

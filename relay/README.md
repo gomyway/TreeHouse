@@ -361,3 +361,28 @@ Contract: ../PLAN.md "Game scope (built)". Code: `src/games.mjs` (listing, servi
   bundles are global.
 - Tests: `node test/games.mjs` (routes, checkMeta, publish refusal), `node test/scope.mjs` (the
   decision, no relay).
+
+## Look and voice rules
+
+Contract: `runner/skill/SKILL.md` and `runner/skill/CONTRACT.md` "Look and voice rules" (the same
+text is in the `/author` system prompt in `src/author.mjs`). Greenlit items 1, 2, 4 and 9 of
+`research/design-ideas.md`: one of six named palettes (Noir, Broadcast, Paper, Arcade, Campfire,
+Lagoon) declared as `meta.palette` with four tokens at `:root`; three text sizes (`--display`,
+`--body`, `--tiny`) and no weight above 500; no emoji as UI; `say` lines of 12 words or fewer.
+
+- The harness (`runner/harness/smoke.mjs`) reads tv.html's CSS (`<style>`, `style="..."`, SVG colour
+  attributes) and the `say` lines of each pass. It fails on a purple-family colour (#b98cff #f6f3ff
+  #ffd23f #3ddc84 #5fe0c0 within ~24 RGB, any hex length, rgb(), hsl()), a font-weight of 600+,
+  more than 2 emoji anywhere in the raw file, a `say` line over 12 words (player names not counted)
+  and an unknown `meta.palette`. It warns on more than 6 non-grey colours, more than 3 font sizes
+  (selectors/elements with "ring" in the class ignored), radii of 50px+ outside a ring, headings or
+  `<b>` left at their default bold, a missing `meta.palette` or tokens, and 2+ exclamation marks in a
+  line. Each pass prints `look <pass>: palette, colours, font sizes, max weight, emoji, longest say`.
+- Look failures are collected apart from the static checks, so the play-through still runs and the
+  report covers the `say` lines too. Since the runner publishes only on PASS, these now gate authored games.
+- `games/sample` is restyled to Broadcast (CSS and `meta.palette` only) and passes clean. The runner
+  fetches its reference sample from the deployed relay first, so agents see the new sample only
+  after `pnpm deploy`.
+- `whos-the-bot`, `little-says` and `whodunnit-in-the-room` are unchanged and fail the look checks.
+- Test: `node test/look.mjs` (in `pnpm test`, needs jsdom in `runner/node_modules`): the sample passes
+  clean, every kit palette passes, and one mutation per check trips it.
