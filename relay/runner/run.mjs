@@ -54,7 +54,7 @@ const RELAY = env("RELAY_URL", "https://little-redwood-relay.nasloon.workers.dev
 const TOKEN = env("PUBLISH_TOKEN", "");
 const RUNNER = env("RUNNER", hostname());
 const PROVIDER = env("AUTHOR_PROVIDER", "fireworks"); // fireworks | openrouter (pi has both built in)
-const MODEL = env("AUTHOR_MODEL", PROVIDER === "openrouter" ? "deepseek/deepseek-v4.1-flash-1017" : "accounts/fireworks/models/deepseek-v4p1-flash-1017");
+const MODEL = env("AUTHOR_MODEL", PROVIDER === "openrouter" ? "anthropic/claude-opus-5.5" : "accounts/fireworks/models/deepseek-v4p1-flash-1017");
 const THINKING = env("AUTHOR_THINKING", "low");
 const IMAGE = env("AUTHOR_IMAGE", "little-redwood-author");
 const TIMEOUT_S = Number(env("AUTHOR_TIMEOUT_S", 360));
