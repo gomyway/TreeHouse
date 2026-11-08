@@ -259,3 +259,33 @@ body, .card, .game-tile, .pill, .code span { transition: background-color 600ms 
 .couch-art .couch-cushion { fill: var(--accent); transition: fill 600ms; }
 .couch-art .couch-leg { fill: var(--ink-3); }
 .couch-more { text-align: center; font-size: 24px; color: var(--ink-3); }
+
+/* Games as a movie-list browser: one vertical roller on the left, the focused game's details on the right. */
+.games { display: flex; flex-direction: column; min-height: 0; }
+.game-browser { flex: 1; min-height: 0; display: grid; grid-template-columns: 400px 1fr; gap: 32px; margin-top: 12px; }
+.roller { position: relative; overflow: hidden; height: 100%; min-height: 300px;
+  mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent); }
+.roller-list { --row: 76px; list-style: none; margin: 0; padding: 0; position: absolute; left: 0; right: 0; top: 50%;
+  transform: translateY(calc(var(--row) * var(--f) * -1 - var(--row) / 2)); transition: transform 320ms cubic-bezier(.2,.8,.2,1); }
+.roller-list .game-tile { height: 64px; margin-bottom: 12px; padding: 0 20px; flex-direction: row; align-items: center; gap: 14px;
+  opacity: calc(1 - var(--d) * 0.25); transform: none; transition: opacity 320ms, border-color 160ms, background-color 600ms; }
+.roller-list .game-tile b { font-size: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roller-list .game-tile .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.roller-list .game-tile.focused { transform: none; background: var(--card); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
+.game-detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; animation: hookIn 400ms ease both; }
+.detail-title { font-size: 52px; font-weight: 700; line-height: 1.05; }
+.game-detail .game-hook { font-size: 28px; margin: 0; }
+.detail-desc { margin: 0; font-size: 22px; line-height: 1.35; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.detail-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.detail-chips span { font-size: 20px; padding: 4px 14px; border-radius: 999px; border: 2px solid var(--line); color: var(--ink-2); }
+.detail-go { margin-top: auto; font-size: 22px; color: var(--accent); font-weight: 600; }
+/* Rolodex: cards curl away from the focused one (2D squash, not 3D: the TV's renderer stalls on 3D flips). */
+.roller-list .game-tile { transform-origin: center; transform: scale(calc(1 - var(--d) * 0.07), calc(1 - var(--d) * 0.24));
+  transition: transform 320ms cubic-bezier(.2,.8,.2,1), opacity 320ms, border-color 160ms, background-color 600ms; }
+.roller-list .game-tile.focused { transform: scale(1.04); height: 72px; margin-bottom: 4px; border-width: 3px; }
+/* the roller gets the room: the join card shrinks to its content, games take the rest */
+.lobby-left .join { flex: none; padding: 24px 40px; }
+.lobby-left .join .qr { width: 210px !important; height: 210px !important; }
+.lobby-left .code span { width: 92px; height: 112px; font-size: 76px; }
+.games { flex: 1; }
+.roller-list .game-tile { transform: scale(calc(1 - var(--d) * 0.06), calc(1 - var(--d) * 0.16)); }

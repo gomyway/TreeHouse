@@ -42,7 +42,7 @@ export function Lobby({
   // Preview the focused game: its palette washes over the lobby (the app's own tokens are
   // re-pointed at the game's on :root, with CSS transitions), its hook shows large, and the room is
   // drawn in its seats. Leaving the lobby restores the app palette.
-  const shown = games.slice(0, 6);
+  const shown = games;
   const fg = shown.length ? shown[Math.min(focus, shown.length - 1)] : undefined;
   const seats = validSeats(fg?.seats);
   useEffect(() => {
@@ -89,35 +89,56 @@ export function Lobby({
         </section>
 
         <section className="games card" data-little="region" data-little-label="Games">
-          <div className="eyebrow">Games</div>
-          {fg ? (
-            <div className="game-hook" key={fg.id} data-little="readout" data-little-label="Focused game" data-little-data={JSON.stringify({ title: fg.title, hook: fg.hook ?? null })}>
-              {fg.hook ?? fg.title}
-            </div>
-          ) : null}
+          <div className="eyebrow">Games · {games.length}</div>
           {games.length ? (
-            <ul className="game-row">
-              {games.slice(0, 6).map((g, i) => (
-                <li
-                  key={g.id}
-                  ref={(el) => {
-                    tiles.current[i] = el;
-                  }}
-                  tabIndex={i === focus ? 0 : -1}
-                  className={`game-tile${i === focus ? " focused" : ""}`}
-                  data-little="item"
-                  data-little-id={g.id}
-                  data-little-action="start_game"
-                  data-little-label={g.title}
-                  data-little-order={i + 1}
-                  data-little-data={JSON.stringify({ players: `${g.minPlayers ?? 1}-${g.maxPlayers ?? 12}` })}
-                  onClick={() => onPick(g)}
+            <div className="game-browser">
+              <div className="roller">
+                <ul className="roller-list" style={{ ["--f" as string]: Math.min(focus, games.length - 1) }}>
+                  {games.map((g, i) => (
+                    <li
+                      key={g.id}
+                      ref={(el) => {
+                        tiles.current[i] = el;
+                      }}
+                      tabIndex={i === focus ? 0 : -1}
+                      className={`game-tile${i === focus ? " focused" : ""}`}
+                      style={{ ["--d" as string]: Math.min(3, Math.abs(i - focus)) }}
+                      data-little="item"
+                      data-little-id={g.id}
+                      data-little-action="start_game"
+                      data-little-label={g.title}
+                      data-little-order={i + 1}
+                      data-little-data={JSON.stringify({ players: `${g.minPlayers ?? 1}-${g.maxPlayers ?? 12}` })}
+                      onClick={() => onPick(g)}
+                    >
+                      <i className="dot" style={{ background: paletteFor(g.palette).accent }} />
+                      <b>{g.title}</b>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {fg ? (
+                <div
+                  className="game-detail"
+                  key={fg.id}
+                  data-little="readout"
+                  data-little-label="Focused game"
+                  data-little-data={JSON.stringify({ title: fg.title, hook: fg.hook ?? null, description: fg.description })}
                 >
-                  <b>{g.title}</b>
-                  <span>{g.description}</span>
-                </li>
-              ))}
-            </ul>
+                  <div className="detail-title">{fg.title}</div>
+                  {fg.hook ? <div className="game-hook">{fg.hook}</div> : null}
+                  <p className="detail-desc">{fg.description}</p>
+                  <div className="detail-chips">
+                    <span>
+                      {fg.minPlayers ?? 1}–{fg.maxPlayers ?? 12} players
+                    </span>
+                    <span>{fg.phonesRequired === false ? "Camera game" : "Phones"}</span>
+                    {fg.palette ? <span>{fg.palette}</span> : null}
+                  </div>
+                  <div className="detail-go">Press OK to play</div>
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="empty small">Loading games…</div>
           )}

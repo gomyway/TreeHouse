@@ -512,13 +512,11 @@ export default function App() {
         return;
       }
       if (v.kind !== "lobby") return;
-      const n = Math.min(6, gamesRef.current.length);
+      const n = gamesRef.current.length;
       if (!n) return;
-      // Two columns: left/right within a row, up/down between rows.
-      if (e.key === "ArrowRight") setFocus((f) => Math.min(n - 1, f + 1));
-      if (e.key === "ArrowLeft") setFocus((f) => Math.max(0, f - 1));
-      if (e.key === "ArrowDown") setFocus((f) => (f + 2 < n ? f + 2 : f));
-      if (e.key === "ArrowUp") setFocus((f) => (f - 2 >= 0 ? f - 2 : f));
+      // One vertical roller: up/down (or left/right) step through the list, wrapping around.
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") setFocus((f) => (f + 1) % n);
+      if (e.key === "ArrowUp" || e.key === "ArrowLeft") setFocus((f) => (f - 1 + n) % n);
       if (e.key === "Enter") {
         const g = gamesRef.current[Math.min(focus, n - 1)];
         if (!g) return;
