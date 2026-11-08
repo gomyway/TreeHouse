@@ -202,6 +202,13 @@ export default function App() {
   }, []);
 
   const startGame = useCallback(async (meta: GameMeta) => {
+    // Single choke point for the start gate: every path (voice tool, remote Enter, the lobby tile's
+    // data-little-action, a click) lands here, so a game can never start under meta.minPlayers.
+    const blocked = whyNotStart(meta);
+    if (blocked) {
+      if (app.can("voice.say")) void app.voice.say(blocked);
+      throw new Error(blocked);
+    }
     // The host theme kit goes first in the bundle's <head>: shared fonts, palette and sizes.
     const html = await injectTheme(await loadGameHtml(meta), meta.palette);
     hostRef.current?.dispose();
@@ -211,7 +218,7 @@ export default function App() {
     setGameState(null);
     setQuestion(null);
     setView({ kind: "game", meta, html });
-  }, []);
+  }, [app]);
 
   // The GameView hands us its iframe; we bridge it once the bundle has loaded.
   const onFrame = useCallback(
@@ -512,13 +519,11 @@ export default function App() {
         return;
       }
       if (v.kind !== "lobby") return;
-      const n = Math.min(6, gamesRef.current.length);
+      const n = gamesRef.current.length;
       if (!n) return;
-      // Two columns: left/right within a row, up/down between rows.
-      if (e.key === "ArrowRight") setFocus((f) => Math.min(n - 1, f + 1));
-      if (e.key === "ArrowLeft") setFocus((f) => Math.max(0, f - 1));
-      if (e.key === "ArrowDown") setFocus((f) => (f + 2 < n ? f + 2 : f));
-      if (e.key === "ArrowUp") setFocus((f) => (f - 2 >= 0 ? f - 2 : f));
+      // One vertical roller: up/down (or left/right) step through the list, wrapping around.
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") setFocus((f) => (f + 1) % n);
+      if (e.key === "ArrowUp" || e.key === "ArrowLeft") setFocus((f) => (f - 1 + n) % n);
       if (e.key === "Enter") {
         const g = gamesRef.current[Math.min(focus, n - 1)];
         if (!g) return;
@@ -583,7 +588,7 @@ export default function App() {
           status={room.status}
           games={games}
           focus={focus}
-          onPick={(g) => void startGame(g)}
+          onPick={(g) => void startGame(g).catch(() => {})}
         />
       )}
     </div>

@@ -259,3 +259,84 @@ body, .card, .game-tile, .pill, .code span { transition: background-color 600ms 
 .couch-art .couch-cushion { fill: var(--accent); transition: fill 600ms; }
 .couch-art .couch-leg { fill: var(--ink-3); }
 .couch-more { text-align: center; font-size: 24px; color: var(--ink-3); }
+
+/* Games as a movie-list browser: one vertical roller on the left, the focused game's details on the right. */
+.games { display: flex; flex-direction: column; min-height: 0; }
+.game-browser { flex: 1; min-height: 0; display: grid; grid-template-columns: 400px 1fr; gap: 32px; margin-top: 12px; }
+.roller { position: relative; overflow: hidden; height: 100%; min-height: 300px;
+  mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent); }
+.roller-list { --row: 76px; list-style: none; margin: 0; padding: 0; position: absolute; left: 0; right: 0; top: 50%;
+  transform: translateY(calc(var(--row) * var(--f) * -1 - var(--row) / 2)); transition: transform 320ms cubic-bezier(.2,.8,.2,1); }
+.roller-list .game-tile { height: 64px; margin-bottom: 12px; padding: 0 20px; flex-direction: row; align-items: center; gap: 14px;
+  opacity: calc(1 - var(--d) * 0.25); transform: none; transition: opacity 320ms, border-color 160ms, background-color 600ms; }
+.roller-list .game-tile b { font-size: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roller-list .game-tile .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.roller-list .game-tile.focused { transform: none; background: var(--card); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
+.game-detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; animation: hookIn 400ms ease both; }
+.detail-title { font-size: 52px; font-weight: 700; line-height: 1.05; }
+.game-detail .game-hook { font-size: 28px; margin: 0; }
+.detail-desc { margin: 0; font-size: 22px; line-height: 1.35; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.detail-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.detail-chips span { font-size: 20px; padding: 4px 14px; border-radius: 999px; border: 2px solid var(--line); color: var(--ink-2); }
+.detail-go { margin-top: auto; font-size: 22px; color: var(--accent); font-weight: 600; }
+/* Rolodex: cards curl away from the focused one (2D squash, not 3D: the TV's renderer stalls on 3D flips). */
+.roller-list .game-tile { transform-origin: center; transform: scale(calc(1 - var(--d) * 0.07), calc(1 - var(--d) * 0.24));
+  transition: transform 320ms cubic-bezier(.2,.8,.2,1), opacity 320ms, border-color 160ms, background-color 600ms; }
+.roller-list .game-tile.focused { transform: scale(1.04); height: 72px; margin-bottom: 4px; border-width: 3px; }
+/* the roller gets the room: the join card shrinks to its content, games take the rest */
+.lobby-left .join { flex: none; padding: 24px 40px; }
+.lobby-left .join .qr { width: 210px !important; height: 210px !important; }
+.lobby-left .code span { width: 92px; height: 112px; font-size: 76px; }
+.games { flex: 1; }
+.roller-list .game-tile { transform: scale(calc(1 - var(--d) * 0.06), calc(1 - var(--d) * 0.16)); }
+/* Rounded loveseat: arched back, puffy arms, a cushion that dips in the middle, a throw pillow. */
+.couch-art .couch-back { opacity: 0.5; }
+.couch-art .couch-arm { opacity: 0.9; }
+.couch-art .couch-pillow { fill: var(--ink); opacity: 0.18; }
+.couch-row { padding: 0 64px; }
+.couch-art { height: 200px; }
+.couches-2 .couch-art { height: 170px; }
+.couch-row { margin-bottom: -118px; }
+.couches-2 .couch-row { margin-bottom: -104px; }
+.couches-2 { gap: 18px; }
+
+/* Cloud couch: drawn at its own aspect ratio, in the accent; seats sink into the round cushion. */
+.couch-art, .couches-2 .couch-art { height: auto; width: 100%; aspect-ratio: 600 / 240; color: var(--accent); transition: color 600ms; }
+.couches-2 .sofa { width: 86%; align-self: center; }
+.couch-row, .couches-2 .couch-row { margin-bottom: -17%; padding: 0 70px; }
+.couches-2 .couch-row { margin-bottom: -17%; }
+
+/* Round armchair: 2:1 art; the seats sit along its back where the pillows go. */
+.couch-art, .couches-2 .couch-art { aspect-ratio: 600 / 300; }
+.couches-2 .sofa { width: 92%; }
+.couch-row, .couches-2 .couch-row { margin-bottom: -24%; padding: 0 28px; justify-content: center; gap: 4px; }
+.couches-2 .couch-row { margin-bottom: -24%; }
+
+/* Roomy: one couch spans the panel; seats sit in its pillow spots (absolute, % of the couch). */
+.couch { gap: 6px; }
+.sofa, .couches-2 .sofa { width: 100%; position: relative; }
+.couch-row, .couches-2 .couch-row { position: absolute; inset: 0; margin: 0; padding: 0; display: block; }
+.couch-row .seat-slot { position: absolute; translate: -50% -38%; z-index: 1; }
+/* Two couches: full width, centred, the front one slightly overlapping the back one's base. */
+.sofa { flex: none; }
+.couches-2 { justify-content: center; gap: 0; }
+.couches-2 .sofa + .sofa { margin-top: -5%; z-index: 2; }
+/* more room for the couches: the left column gives up 100px */
+.lobby { grid-template-columns: 940px 1fr; }
+.players { padding-left: 28px; padding-right: 28px; }
+.players .hint { margin-top: 8px; }
+
+/* Empty seats are throw pillows; a joining player bounces in where the pillow was. */
+.seat-slot.empty { animation: none; }
+.pillow { position: relative; width: 104px; height: 96px; display: grid; place-items: center;
+  color: color-mix(in srgb, var(--accent) 45%, #f4ece0); filter: drop-shadow(0 6px 8px rgba(0,0,0,.35)); }
+.pillow svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pillow b { position: relative; font-size: 22px; font-weight: 600; color: color-mix(in srgb, var(--accent) 70%, #000); letter-spacing: .02em; }
+.seat-slot:not(.empty) { animation: seatBounce 760ms cubic-bezier(.3,1.6,.5,1) both; }
+@keyframes seatBounce {
+  0% { transform: translateY(-60px) scale(.5); opacity: 0; }
+  45% { transform: translateY(6px) scale(1.08, .9); opacity: 1; }
+  70% { transform: translateY(-8px) scale(.97, 1.04); }
+  100% { transform: none; }
+}
+.seat-slot .ring { box-shadow: 0 8px 14px rgba(0,0,0,.45); }

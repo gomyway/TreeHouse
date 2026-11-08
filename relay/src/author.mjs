@@ -218,7 +218,7 @@ export function validateBundle(text) {
     if (typeof meta.description !== "string" || !meta.description.trim()) errors.push("meta.description must be a non-empty string");
     if (!Array.isArray(meta.phases) || !meta.phases.length || !meta.phases.every((p) => typeof p === "string")) errors.push("meta.phases must be a non-empty array of strings");
     if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1 || meta.minPlayers > MAX_PLAYERS) errors.push(`meta.minPlayers must be an integer from 1 to ${MAX_PLAYERS}`);
-    if (meta.maxPlayers !== undefined && (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1))) errors.push("meta.maxPlayers must be an integer >= minPlayers");
+    if (meta.maxPlayers !== undefined && (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1) || meta.maxPlayers > MAX_PLAYERS)) errors.push(`meta.maxPlayers must be an integer with minPlayers <= maxPlayers <= ${MAX_PLAYERS}`);
   }
   if (!html) errors.push("no ```html block with tv.html found");
   else {
