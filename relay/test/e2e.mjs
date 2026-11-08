@@ -96,6 +96,18 @@ if (rj.player.guid !== GUID) fail(`rejoin guid ${JSON.stringify(rj.player)}`); o
 const bad = await open("/join?code=ZZZZ");
 if ((await next(bad, "error")).message !== "no such room") fail("no-room error"); ok("unknown code rejected with a readable error");
 
+// Room cap: a fresh room takes 16 players and refuses the 17th with a readable error.
+{
+  const tvF = await open("/host"); const full = await next(tvF, "room");
+  const caps = [];
+  for (let i = 0; i < 16; i++) { const p = await open(`/join?code=${full.code}&name=P${i}`); const j = await next(p, "joined"); caps.push(p); if (!j.player?.id) fail(`join ${i}`); }
+  const extra = await open(`/join?code=${full.code}&name=P16`);
+  const err = await next(extra, "error");
+  if (!/room is full \(16 players\)/.test(err.message ?? "")) fail(`room-full error: ${JSON.stringify(err)}`);
+  ok("17th player refused: room is full (16 players)");
+  for (const p of caps) p.close(); tvF.close();
+}
+
 const join3P = next(tv, "join");
 const phone3 = await open(`/join?code=${room.code}&name=Bo`); await next(phone3, "joined"); await join3P;
 send(tv, { type: "kick", to: joined.player.id });

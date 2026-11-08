@@ -8,6 +8,7 @@ import { handleMemories } from "./memories.mjs";
 export { AuthorJob } from "./author.mjs";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I or O
+const MAX_PLAYERS = 16; // per room; the lobby, meta.maxPlayers and the harness share this cap
 const CODE_RE = /^[A-HJ-NP-Z]{4}$/;
 const MAX_FRAME_BYTES = 256 * 1024;
 const TV_GRACE_MS = 60_000;
@@ -131,6 +132,12 @@ export class Room {
     const rawGuid = url.searchParams.get("guid");
     const guid = rawGuid && GUID_RE.test(rawGuid) ? rawGuid : null; // invalid: ignored
     if (!player) {
+      // Room cap: 16 players per TV (Nelson, 2026-11-07). Counts everyone still in the room, including
+      // those within the leave grace, so a seat frees only when a player is forgotten or kicked.
+      if (this.players.size >= MAX_PLAYERS) {
+        this.ctx.acceptWebSocket(ws, ["dead"]); ws.serializeAttachment({ role: "dead" });
+        ws.send(JSON.stringify({ type: "error", message: `room is full (${MAX_PLAYERS} players)` })); ws.close(4005, "room full"); return;
+      }
       player = { id: crypto.randomUUID().slice(0, 8), name, connected: false, leftAt: null, guid };
       // Same guid already on a connected player here (two tabs on one phone): still a new player, flagged.
       if (guid && [...this.players.values()].some((o) => o.connected && o.guid === guid)) player.sameDevice = true;
