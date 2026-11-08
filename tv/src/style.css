@@ -289,3 +289,39 @@ body, .card, .game-tile, .pill, .code span { transition: background-color 600ms 
 .lobby-left .code span { width: 92px; height: 112px; font-size: 76px; }
 .games { flex: 1; }
 .roller-list .game-tile { transform: scale(calc(1 - var(--d) * 0.06), calc(1 - var(--d) * 0.16)); }
+/* Rounded loveseat: arched back, puffy arms, a cushion that dips in the middle, a throw pillow. */
+.couch-art .couch-back { opacity: 0.5; }
+.couch-art .couch-arm { opacity: 0.9; }
+.couch-art .couch-pillow { fill: var(--ink); opacity: 0.18; }
+.couch-row { padding: 0 64px; }
+.couch-art { height: 200px; }
+.couches-2 .couch-art { height: 170px; }
+.couch-row { margin-bottom: -118px; }
+.couches-2 .couch-row { margin-bottom: -104px; }
+.couches-2 { gap: 18px; }
+
+/* Cloud couch: drawn at its own aspect ratio, in the accent; seats sink into the round cushion. */
+.couch-art, .couches-2 .couch-art { height: auto; width: 100%; aspect-ratio: 600 / 240; color: var(--accent); transition: color 600ms; }
+.couches-2 .sofa { width: 86%; align-self: center; }
+.couch-row, .couches-2 .couch-row { margin-bottom: -17%; padding: 0 70px; }
+.couches-2 .couch-row { margin-bottom: -17%; }
+
+/* Round armchair: 2:1 art; the seats sit along its back where the pillows go. */
+.couch-art, .couches-2 .couch-art { aspect-ratio: 600 / 300; }
+.couches-2 .sofa { width: 92%; }
+.couch-row, .couches-2 .couch-row { margin-bottom: -24%; padding: 0 28px; justify-content: center; gap: 4px; }
+.couches-2 .couch-row { margin-bottom: -24%; }
+
+/* Roomy: one couch spans the panel; seats sit in its pillow spots (absolute, % of the couch). */
+.couch { gap: 6px; }
+.sofa, .couches-2 .sofa { width: 100%; position: relative; }
+.couch-row, .couches-2 .couch-row { position: absolute; inset: 0; margin: 0; padding: 0; display: block; }
+.couch-row .seat-slot { position: absolute; translate: -50% -38%; z-index: 1; }
+/* Two couches: full width, centred, the front one slightly overlapping the back one's base. */
+.sofa { flex: none; }
+.couches-2 { justify-content: center; gap: 0; }
+.couches-2 .sofa + .sofa { margin-top: -5%; z-index: 2; }
+/* more room for the couches: the left column gives up 100px */
+.lobby { grid-template-columns: 940px 1fr; }
+.players { padding-left: 28px; padding-right: 28px; }
+.players .hint { margin-top: 8px; }

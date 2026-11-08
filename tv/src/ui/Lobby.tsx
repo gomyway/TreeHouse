@@ -159,6 +159,56 @@ export function Lobby({
   );
 }
 
+// An oversized round armchair (a low drum base, a thick puffy seat cushion with piping, rounded
+// arms wrapping the sides); the players sit where its throw pillows would, fanned along the back.
+// Drawn in currentColor so it takes the focused game's accent; shading is black/white overlays and a
+// bouclé dot texture.
+function CloudCouch() {
+  return (
+    <svg className="couch-art" viewBox="0 0 600 300" aria-hidden="true">
+      <defs>
+        <pattern id="lr-boucle" width="9" height="9" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1.4" fill="#fff" opacity=".12" />
+          <circle cx="6.5" cy="6" r="1.2" fill="#000" opacity=".08" />
+        </pattern>
+      </defs>
+      <ellipse cx="300" cy="284" rx="258" ry="13" fill="#000" opacity=".32" />
+      {/* the round back, seen from the front: mostly hidden behind the people */}
+      <ellipse cx="300" cy="158" rx="252" ry="100" fill="currentColor" />
+      <ellipse cx="300" cy="150" rx="212" ry="70" fill="#000" opacity=".2" />
+      {/* drum base */}
+      <path d="M58 196 L58 236 A242 44 0 0 0 542 236 L542 196 Z" fill="currentColor" />
+      <path d="M58 196 L58 236 A242 44 0 0 0 542 236 L542 196 Z" fill="#000" opacity=".1" />
+      <path d="M58 236 A242 44 0 0 0 542 236" stroke="#000" strokeOpacity=".18" strokeWidth="6" fill="none" />
+      {/* arms wrapping the sides */}
+      <ellipse cx="92" cy="176" rx="44" ry="66" fill="currentColor" />
+      <ellipse cx="508" cy="176" rx="44" ry="66" fill="currentColor" />
+      <ellipse cx="84" cy="160" rx="22" ry="34" fill="#fff" opacity=".1" />
+      <ellipse cx="516" cy="160" rx="22" ry="34" fill="#fff" opacity=".1" />
+      {/* the puffy seat cushion */}
+      <path d="M78 202 Q74 158 300 154 Q526 158 522 202 Q520 236 300 238 Q80 236 78 202 Z" fill="currentColor" />
+      <ellipse cx="300" cy="180" rx="196" ry="20" fill="#fff" opacity=".16" />
+      <path d="M84 208 Q300 230 516 208" stroke="#fff" strokeOpacity=".28" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <path d="M96 234 Q300 252 504 234" stroke="#000" strokeOpacity=".22" strokeWidth="4" fill="none" strokeLinecap="round" />
+      <ellipse cx="300" cy="158" rx="252" ry="100" fill="url(#lr-boucle)" />
+      <path d="M58 196 L58 236 A242 44 0 0 0 542 236 L542 196 Z" fill="url(#lr-boucle)" />
+    </svg>
+  );
+}
+
+/** Pillow spots: seats rest on the back of the cushion between the arms, fanned like the
+ *  armchair's throw pillows (the middle sits highest, the ends lean out). In % of the couch box. */
+function sag(n: number, i: number) {
+  const pos = i % 4;
+  const off = pos - (n - 1) / 2; // -1.5 .. 1.5
+  const t = off / 3; // -0.5 .. 0.5
+  return {
+    left: `${50 + off * 17}%`,
+    top: `${37 + 22 * t * t}%`,
+    rotate: `${(t * 22).toFixed(1)}deg`,
+  };
+}
+
 /** The room as a couch: round seats on the cushions, empty ones inviting people to join. */
 function Couch({ players, seats, gameKey }: { players: Player[]; seats: ReturnType<typeof validSeats>; gameKey: string }) {
   const MAX = 8;
@@ -175,9 +225,10 @@ function Couch({ players, seats, gameKey }: { players: Player[]; seats: ReturnTy
             {Array.from({ length: n }, () => {
               const i = k++;
               const p = shown[i];
+              const arc = sag(n, i);
               if (!p) {
                 return (
-                  <li key={`empty-${i}`} className="seat-slot empty">
+                  <li key={`empty-${i}`} className="seat-slot empty" style={arc}>
                     <span className="ring">Join!</span>
                   </li>
                 );
@@ -191,7 +242,7 @@ function Couch({ players, seats, gameKey }: { players: Player[]; seats: ReturnTy
                   data-little-id={p.id}
                   data-little-label={p.name}
                   data-little-order={i + 1}
-                  style={{ ["--c" as string]: p.color }}
+                  style={{ ["--c" as string]: p.color, ...arc }}
                 >
                   <span className="ring">
                     {seat ? (
@@ -205,14 +256,7 @@ function Couch({ players, seats, gameKey }: { players: Player[]; seats: ReturnTy
               );
             })}
           </ul>
-          <svg className="couch-art" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
-            <rect x="40" y="0" width="520" height="110" rx="28" className="couch-back" />
-            <rect x="0" y="60" width="70" height="120" rx="26" className="couch-arm" />
-            <rect x="530" y="60" width="70" height="120" rx="26" className="couch-arm" />
-            <rect x="60" y="95" width="480" height="80" rx="18" className="couch-cushion" />
-            <rect x="80" y="175" width="18" height="24" rx="4" className="couch-leg" />
-            <rect x="502" y="175" width="18" height="24" rx="4" className="couch-leg" />
-          </svg>
+          <CloudCouch />
         </div>
       ))}
       {players.length > MAX ? <div className="couch-more">+{players.length - MAX} more on the floor</div> : null}
