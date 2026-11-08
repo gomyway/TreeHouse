@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { Player } from "../room/model";
 import type { GameMeta } from "../game/catalog";
 import { seatFor, seatSrc, validSeats } from "../game/seats";
@@ -161,38 +161,114 @@ export function Lobby({
 
 // An oversized round armchair (a low drum base, a thick puffy seat cushion with piping, rounded
 // arms wrapping the sides); the players sit where its throw pillows would, fanned along the back.
-// Drawn in currentColor so it takes the focused game's accent; shading is black/white overlays and a
-// bouclé dot texture.
+// Drawn in currentColor so it takes the focused game's accent. Volume comes from black/white
+// gradient overlays (highlights on top, occlusion where parts meet), not from fixed colours.
 function CloudCouch() {
+  const u = useId().replace(/:/g, "");
+  const id = (n: string) => `${u}-${n}`;
+  const url = (n: string) => `url(#${id(n)})`;
+  const BACK = "M76 190 C60 14, 540 14, 524 190 Z";
+  const WALL = "M128 192 C116 76, 484 76, 472 192 Z";
+  const BASE = "M84 206 L84 240 A216 34 0 0 0 516 240 L516 206 Z";
+  const SEAT = "M106 208 Q102 164 300 160 Q498 164 494 208 Q492 240 300 242 Q108 240 106 208 Z";
   return (
     <svg className="couch-art" viewBox="0 0 600 300" aria-hidden="true">
       <defs>
-        <pattern id="lr-boucle" width="9" height="9" patternUnits="userSpaceOnUse">
-          <circle cx="2" cy="2" r="1.4" fill="#fff" opacity=".12" />
-          <circle cx="6.5" cy="6" r="1.2" fill="#000" opacity=".08" />
+        <radialGradient id={id("floor")} cx="50%" cy="50%" r="50%">
+          <stop offset="0" stopColor="#000" stopOpacity=".55" />
+          <stop offset="1" stopColor="#000" stopOpacity="0" />
+        </radialGradient>
+        {/* the back: lit along its top rim, shadowed deep in the bowl */}
+        <linearGradient id={id("back")} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff" stopOpacity=".26" />
+          <stop offset=".25" stopColor="#fff" stopOpacity=".06" />
+          <stop offset=".7" stopColor="#000" stopOpacity=".34" />
+          <stop offset="1" stopColor="#000" stopOpacity=".45" />
+        </linearGradient>
+        {/* puffy parts: a soft highlight up and left, darker toward the edges */}
+        <radialGradient id={id("puff")} cx="42%" cy="30%" r="75%">
+          <stop offset="0" stopColor="#fff" stopOpacity=".34" />
+          <stop offset=".45" stopColor="#fff" stopOpacity=".05" />
+          <stop offset="1" stopColor="#000" stopOpacity=".32" />
+        </radialGradient>
+        <linearGradient id={id("base")} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#000" stopOpacity=".42" />
+          <stop offset=".3" stopColor="#000" stopOpacity=".14" />
+          <stop offset="1" stopColor="#000" stopOpacity=".4" />
+        </linearGradient>
+        <radialGradient id={id("tuck")} cx="50%" cy="50%" r="50%">
+          <stop offset="0" stopColor="#000" stopOpacity=".5" />
+          <stop offset="1" stopColor="#000" stopOpacity="0" />
+        </radialGradient>
+        <pattern id={id("boucle")} width="8" height="8" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1.3" fill="#fff" opacity=".12" />
+          <circle cx="6" cy="5.5" r="1.1" fill="#000" opacity=".1" />
         </pattern>
       </defs>
-      <ellipse cx="300" cy="284" rx="258" ry="13" fill="#000" opacity=".32" />
-      {/* the round back, seen from the front: mostly hidden behind the people */}
-      <ellipse cx="300" cy="158" rx="252" ry="100" fill="currentColor" />
-      <ellipse cx="300" cy="150" rx="212" ry="70" fill="#000" opacity=".2" />
-      {/* drum base */}
-      <path d="M58 196 L58 236 A242 44 0 0 0 542 236 L542 196 Z" fill="currentColor" />
-      <path d="M58 196 L58 236 A242 44 0 0 0 542 236 L542 196 Z" fill="#000" opacity=".1" />
-      <path d="M58 236 A242 44 0 0 0 542 236" stroke="#000" strokeOpacity=".18" strokeWidth="6" fill="none" />
-      {/* arms wrapping the sides */}
-      <ellipse cx="92" cy="176" rx="44" ry="66" fill="currentColor" />
-      <ellipse cx="508" cy="176" rx="44" ry="66" fill="currentColor" />
-      <ellipse cx="84" cy="160" rx="22" ry="34" fill="#fff" opacity=".1" />
-      <ellipse cx="516" cy="160" rx="22" ry="34" fill="#fff" opacity=".1" />
-      {/* the puffy seat cushion */}
-      <path d="M78 202 Q74 158 300 154 Q526 158 522 202 Q520 236 300 238 Q80 236 78 202 Z" fill="currentColor" />
-      <ellipse cx="300" cy="180" rx="196" ry="20" fill="#fff" opacity=".16" />
-      <path d="M84 208 Q300 230 516 208" stroke="#fff" strokeOpacity=".28" strokeWidth="3" fill="none" strokeLinecap="round" />
-      <path d="M96 234 Q300 252 504 234" stroke="#000" strokeOpacity=".22" strokeWidth="4" fill="none" strokeLinecap="round" />
-      <ellipse cx="300" cy="158" rx="252" ry="100" fill="url(#lr-boucle)" />
-      <path d="M58 196 L58 236 A242 44 0 0 0 542 236 L542 196 Z" fill="url(#lr-boucle)" />
+      <ellipse cx="300" cy="284" rx="280" ry="18" fill={url("floor")} />
+      {/* wooden feet */}
+      {[132, 468].map((x) => (
+        <path key={x} d={`M${x - 11} 262 L${x + 11} 262 L${x + 7} 288 L${x - 7} 288 Z`} fill="#3b2a1e" />
+      ))}
+      {/* back */}
+      <path d={BACK} fill="currentColor" />
+      <path d={BACK} fill={url("back")} />
+      <path d="M86 150 C76 42, 524 42, 514 150" stroke="#fff" strokeOpacity=".24" strokeWidth="6" fill="none" strokeLinecap="round" />
+      {/* the inner wall of the back, where people lean: set in, in shadow */}
+      <path d={WALL} fill="currentColor" />
+      <path d={WALL} fill="#000" opacity=".26" />
+      <path d={WALL} fill={url("back")} opacity=".7" />
+      <path d="M128 192 C116 76, 484 76, 472 192" stroke="#000" strokeOpacity=".3" strokeWidth="3" fill="none" />
+      {/* base drum */}
+      <path d={BASE} fill="currentColor" />
+      <path d={BASE} fill={url("base")} />
+      <path d="M84 240 A216 34 0 0 0 516 240" stroke="#000" strokeOpacity=".3" strokeWidth="4" fill="none" />
+      {/* occlusion where the cushion tucks into the arms */}
+      <ellipse cx="140" cy="204" rx="56" ry="40" fill={url("tuck")} />
+      <ellipse cx="460" cy="204" rx="56" ry="40" fill={url("tuck")} />
+      {/* the puffy seat cushion, piping, and its shadow on the base */}
+      <path d="M116 238 Q300 262 484 238" stroke="#000" strokeOpacity=".35" strokeWidth="10" fill="none" strokeLinecap="round" />
+      <path d={SEAT} fill="currentColor" />
+      <path d={SEAT} fill={url("puff")} />
+      <path d="M110 212 Q300 234 490 212" stroke="#fff" strokeOpacity=".3" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <path d="M112 215 Q300 237 488 215" stroke="#000" strokeOpacity=".18" strokeWidth="2" fill="none" strokeLinecap="round" />
+      {/* rolled arms, in front of the cushion ends, rising above the seat */}
+      {[78, 522].map((cx) => (
+        <g key={cx}>
+          <ellipse cx={cx} cy="176" rx="58" ry="78" fill="currentColor" />
+          <ellipse cx={cx} cy="176" rx="58" ry="78" fill={url("puff")} />
+          <ellipse cx={cx} cy="176" rx="58" ry="78" fill={url("boucle")} />
+          <path d={cx < 300 ? "M126 132 Q142 176 128 226" : "M474 132 Q458 176 472 226"} stroke="#000" strokeOpacity=".28" strokeWidth="4" fill="none" strokeLinecap="round" />
+          <ellipse cx={cx - (cx < 300 ? 10 : -10)} cy="128" rx="26" ry="18" fill="#fff" opacity=".16" />
+        </g>
+      ))}
+      <path d={BACK} fill={url("boucle")} />
+      <path d={WALL} fill={url("boucle")} />
+      <path d={SEAT} fill={url("boucle")} />
+      <path d={BASE} fill={url("boucle")} />
     </svg>
+  );
+}
+
+/** An empty seat: a throw pillow (pinched corners, puffed middle) with "Join!" on it. */
+function Pillow() {
+  const u = useId().replace(/:/g, "");
+  return (
+    <span className="pillow">
+      <svg viewBox="0 0 100 92" aria-hidden="true">
+        <defs>
+          <radialGradient id={`${u}-p`} cx="45%" cy="38%" r="70%">
+            <stop offset="0" stopColor="#fff" stopOpacity=".45" />
+            <stop offset=".5" stopColor="#fff" stopOpacity=".08" />
+            <stop offset="1" stopColor="#000" stopOpacity=".3" />
+          </radialGradient>
+        </defs>
+        <path d="M8 8 Q50 16 92 8 Q84 46 92 84 Q50 76 8 84 Q16 46 8 8 Z" fill="currentColor" />
+        <path d="M8 8 Q50 16 92 8 Q84 46 92 84 Q50 76 8 84 Q16 46 8 8 Z" fill={`url(#${u}-p)`} />
+        <path d="M16 15 Q50 22 84 15 Q77 46 84 77 Q50 70 16 77 Q23 46 16 15 Z" fill="none" stroke="#000" strokeOpacity=".16" strokeWidth="1.5" strokeDasharray="3 3" />
+      </svg>
+      <b>Join!</b>
+    </span>
   );
 }
 
@@ -203,8 +279,8 @@ function sag(n: number, i: number) {
   const off = pos - (n - 1) / 2; // -1.5 .. 1.5
   const t = off / 3; // -0.5 .. 0.5
   return {
-    left: `${50 + off * 17}%`,
-    top: `${37 + 22 * t * t}%`,
+    left: `${50 + off * 14.5}%`,
+    top: `${44 + 18 * t * t}%`,
     rotate: `${(t * 22).toFixed(1)}deg`,
   };
 }
@@ -229,7 +305,7 @@ function Couch({ players, seats, gameKey }: { players: Player[]; seats: ReturnTy
               if (!p) {
                 return (
                   <li key={`empty-${i}`} className="seat-slot empty" style={arc}>
-                    <span className="ring">Join!</span>
+                    <Pillow />
                   </li>
                 );
               }

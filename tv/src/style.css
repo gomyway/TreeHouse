@@ -325,3 +325,18 @@ body, .card, .game-tile, .pill, .code span { transition: background-color 600ms 
 .lobby { grid-template-columns: 940px 1fr; }
 .players { padding-left: 28px; padding-right: 28px; }
 .players .hint { margin-top: 8px; }
+
+/* Empty seats are throw pillows; a joining player bounces in where the pillow was. */
+.seat-slot.empty { animation: none; }
+.pillow { position: relative; width: 104px; height: 96px; display: grid; place-items: center;
+  color: color-mix(in srgb, var(--accent) 45%, #f4ece0); filter: drop-shadow(0 6px 8px rgba(0,0,0,.35)); }
+.pillow svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pillow b { position: relative; font-size: 22px; font-weight: 600; color: color-mix(in srgb, var(--accent) 70%, #000); letter-spacing: .02em; }
+.seat-slot:not(.empty) { animation: seatBounce 760ms cubic-bezier(.3,1.6,.5,1) both; }
+@keyframes seatBounce {
+  0% { transform: translateY(-60px) scale(.5); opacity: 0; }
+  45% { transform: translateY(6px) scale(1.08, .9); opacity: 1; }
+  70% { transform: translateY(-8px) scale(.97, 1.04); }
+  100% { transform: none; }
+}
+.seat-slot .ring { box-shadow: 0 8px 14px rgba(0,0,0,.45); }
