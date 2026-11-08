@@ -106,6 +106,11 @@ const BUDGET_MS = Number(opt("budget", 300)) * 1000;   // game time
 const AI_MODE = opt("ai", "both");
 const VERBOSE = flag("verbose");
 const lobbyPath = resolve(opt("lobby-html", join(dirname(htmlPath), "lobby.html")));
+// --gate=core|full (default full). core: only what stops the game from running blocks (missing or invalid
+// files, page errors, bridge misuse, no screen, never done); look, seats, lobby, static-gate and design
+// findings are reported as warnings. Nelson, 2026-11-07: play-testing is advisory, not a wall.
+const GATE_MODE = (argv.find((a) => a.startsWith("--gate="))?.slice(7)) ?? opt("gate", "full");
+if (!["core", "full"].includes(GATE_MODE)) { console.error(`--gate must be core or full, got ${GATE_MODE}`); process.exit(2); }
 const LOBBY_MODE = (argv.find((a) => a.startsWith("--lobby="))?.slice(8)) ?? opt("lobby", "warn");
 if (!["warn", "fail"].includes(LOBBY_MODE)) { console.error(`--lobby must be warn or fail, got ${LOBBY_MODE}`); process.exit(2); }
 
@@ -964,10 +969,21 @@ for (const p of passes) {
   for (const f of p.pf) failures.push(`[${p.tag}] ${f}`);
   for (const w of p.pw) warn(`[${p.tag}] ${w}`);
 }
-failures.push(...gateFails);
-for (const f of lookFails) failures.push(`look: ${f}`);
+if (GATE_MODE === "core") {
+  // Advisory in core mode: the play-through verdict stands on its own.
+  const CORE = /not found|must be|uncaught|threw|exception|no screen|never (sent|showed|reached) (a )?screen|done (never|false)|did not end|postMessage|external|network|jsdom|meta\./i;
+  const soft = failures.filter((f) => !CORE.test(f));
+  for (const f of soft) warn(`(advisory) ${f}`);
+  failures.splice(0, failures.length, ...failures.filter((f) => CORE.test(f)));
+  for (const f of gateFails) warn(`(advisory) ${f}`);
+  for (const f of lookFails) warn(`(advisory) look: ${f}`);
+  for (const f of lobbyFails) warn(`(advisory) ${f}`);
+} else {
+  failures.push(...gateFails);
+  for (const f of lookFails) failures.push(`look: ${f}`);
+  failures.push(...lobbyFails);
+}
 for (const w of lookWarns) warn(`look: ${w}`);
-failures.push(...lobbyFails);
 for (const w of lobbyWarns) warn(w);
 for (const w of warnings) log(`warn: ${w}`);
 if (failures.length) {

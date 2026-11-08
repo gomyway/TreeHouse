@@ -175,7 +175,7 @@ function runAgent(dir, log, onTick) {
   const task = "You are building a party game bundle in /job for the people in the room. Read /job/TASK.md, then /job/skill/SKILL.md (its Design rules are non-negotiable), /job/skill/CONTRACT.md, /job/reference/sample.html and /job/reference/sample.lobby.html; read /job/reference/whos-the-bot.html for how to tier roles only: it predates the look and voice rules, so never copy its styling, weights, emoji or long say lines; /job/reference/sample.html is the look reference. " +
     "Build the game TASK.md asks for, with every feature it names, cast with the joined players: their real names, an actionable phone screen for every player every round, rotating active roles with everyone else judging/betting/voting, no invented player characters or NPC contestants. The sample shows the bridge and TV sizing only, do not reskin it. " +
     "Write /job/meta.json and /job/tv.html (write tv.html whole in one go, then edit), then the lobby card /job/lobby.html (SKILL.md \"Lobby card\": the game's name as art, a backdrop from its motifs, the room as its seats, the join URL and code, the hook, a ready status line, idle motion). Run `node harness/smoke.mjs` from /job and fix every failure until it prints SMOKE PASS. " +
-    "Then re-read TASK.md and the design rules, check each is met in tv.html, add what is missing, and improve the fun (clear hook, say lines, reveal naming players, winner), re-running the harness after each change. Finish only when it passes.";
+    "Then re-read TASK.md and the design rules, check each is met in tv.html, add what is missing, and improve the fun (clear hook, say lines, reveal naming players, winner), then run the harness once (node harness/smoke.mjs --gate=core) and fix only the listed failures, never iterate on warnings. Finish as soon as the three files exist and one harness run shows no failures; speed beats polish.";
     const args = ["run", "--rm", "--name", name,
       "--memory", "2g", "--cpus", "2",
       "-v", `${dir}:/job`, "-w", "/job",
@@ -204,7 +204,7 @@ function runAgent(dir, log, onTick) {
 }
 
 function gate(dir) {
-  const r = spawnSync(process.execPath, [join(HERE, "harness", "smoke.mjs"), dir], { encoding: "utf8", timeout: 120_000 });
+  const r = spawnSync(process.execPath, [join(HERE, "harness", "smoke.mjs"), dir, "--gate=core"], { encoding: "utf8", timeout: 120_000 });
   const out = (r.stdout ?? "") + (r.stderr ?? "");
   return { pass: r.status === 0 && /SMOKE PASS/.test(out), out };
 }

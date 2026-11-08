@@ -243,9 +243,8 @@ or keeps the same `data-status` text when `ready` changes. The look checks run o
 3. Write `meta.json` (with `palette`, `hook`, `engine` and `seats`) and `tv.html` in the job directory (not in `reference/`), then `lobby.html` (see "Lobby card"). Build the game
    TASK.md asks for, with every feature it names; the reference shows the bridge and the TV
    sizing, it is not a template to reskin. Write `tv.html` whole in one go, then fix it with edits.
-4. Run `node harness/smoke.mjs`. It prints `SMOKE PASS` or `SMOKE FAIL` with reasons.
-5. Fix every failure and re-run. Repeat until it passes. Read the `warn:` lines too and fix the
-   ones that are real (a phase name missing from meta.phases, no `say`, a late joiner with no screen).
+4. Run `node harness/smoke.mjs --gate=core` ONCE, after all three files are written. It prints `SMOKE PASS` or `SMOKE FAIL` with reasons; `warn:` lines are advisory.
+5. Fix only the `- ` failures (the game not loading, a missing file, a bridge error) and stop. Do not iterate on warnings; do not run the harness more than twice. Time matters more than polish: the host runs the same check after you finish.
 6. Once green, make it fun: a clear hook in the first 5 seconds, a short spoken line (`say`, 12 words or fewer) per
    round start and result, a reveal moment, a winner. Re-run the harness after every change.
 7. Re-read `TASK.md` and check every requested feature (rounds, answer choices, timers, scoring,
