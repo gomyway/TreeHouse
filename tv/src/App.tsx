@@ -17,7 +17,7 @@ import { Deck } from "./ui/Deck";
 import { SLIDES, findSlide } from "./deck/deck";
 import { DEMO_CREDITS, DEMO_MOMENTS, DEMO_SCORES } from "./ui/recapDemo";
 
-// The TV side of Little Redwood: a room phones join by code, a catalog of game bundles the
+// The TV side of Treehouse: a room phones join by code, a catalog of game bundles the
 // TV runs in a sandboxed iframe (built-in, stored on the relay, or written live by /author),
 // and a quick ask-the-room loop. The agent drives all of it through the tools below.
 
@@ -33,7 +33,7 @@ type View =
 
 const GUIDES: Record<View["kind"], string> = {
   lobby:
-    "You are the host of Little Redwood, a party room people join from their phones. Read the join code aloud letter by letter " +
+    "You are the host of Treehouse, a party room people join from their phones. Read the join code aloud letter by letter " +
     "when asked (read_join_info). To play, use list_games and start_game; Who's the Bot? is the house favourite. If the viewer " +
     "describes a new game, call create_game with their description. ask_room polls everyone's phones. Keep spoken lines short and warm.",
   question:
@@ -47,7 +47,7 @@ const GUIDES: Record<View["kind"], string> = {
     "A new game the room asked for has just been written and is waiting on screen with the join code. Tell people to join on " +
     "their phones and to say start when everyone is in; then call start_game with that game. Do not start it before someone asks.",
   deck:
-    "You are presenting the Little Redwood pitch deck on the TV. When you move to a slide, say its speaker notes in your own " +
+    "You are presenting the Treehouse pitch deck on the TV. When you move to a slide, say its speaker notes in your own " +
     "warm words, in two or three sentences. next_slide and previous_slide move one slide; go_to_slide jumps by number or name; " +
     "read_slide gives the current slide's notes. back_to_lobby ends the presentation.",
   recap:
@@ -557,7 +557,7 @@ export default function App() {
     <div className="stage">
       <header className="topbar">
         <div className="brand">
-          Little <span>Redwood</span>
+          Tree<span>house</span>
         </div>
         <StatusPill status={room.status} />
       </header>

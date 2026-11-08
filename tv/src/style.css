@@ -340,3 +340,9 @@ body, .card, .game-tile, .pill, .code span { transition: background-color 600ms 
   100% { transform: none; }
 }
 .seat-slot .ring { box-shadow: 0 8px 14px rgba(0,0,0,.45); }
+
+/* Up to 16: three or four couches sit two by two, with smaller seats. */
+.couches-3, .couches-4 { display: grid; grid-template-columns: 1fr 1fr; align-content: center; gap: 22px 10px; }
+.couches-3 .sofa, .couches-4 .sofa { width: 100%; margin: 0 !important; }
+.couches-3 .seat-slot, .couches-4 .seat-slot { scale: .56; }
+.couches-3 .couch-row .seat-slot, .couches-4 .couch-row .seat-slot { translate: -50% -50%; }

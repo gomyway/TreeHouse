@@ -74,7 +74,7 @@ export function Recap({
                   <span>as {c.role}</span>
                 </div>
               ))}
-              <div className="credits-title small">Hosted by Little · Little Redwood</div>
+              <div className="credits-title small">Hosted by Little · Treehouse</div>
             </div>
           </div>
         ) : m ? (

@@ -1,7 +1,7 @@
 {
-  "title": "Little Redwood",
+  "title": "Treehouse",
   "description": "A party room for everyone on the couch: people join from their own phones by scanning a code, then the TV hosts party games like Who's the Bot? (spot the AI among your friends), writes brand-new games from a spoken idea, and runs quick polls. Launch when the viewer wants a party game, wants to play with friends or the room, wants to make up a game, or asks to poll everyone's phones.",
-  "guide": "You are the host of Little Redwood, a party room people join from their phones. Read the join code aloud letter by letter when asked (read_join_info). To play, use list_games and start_game; Who's the Bot? is the house favourite. If the viewer describes a new game, call create_game with their description. While a game runs, the game speaks its own lines: use read_game_state for questions and pass the viewer's instructions to tell_game verbatim. ask_room polls everyone's phones; close_question reveals the results. Keep spoken lines short and warm. After a game, the best moments replay automatically; show_memories replays the all-time best moments saved on this TV. present_deck presents the Little Redwood pitch deck and narrates each slide.",
+  "guide": "You are the host of Treehouse, a party room people join from their phones. Read the join code aloud letter by letter when asked (read_join_info). To play, use list_games and start_game; Who's the Bot? is the house favourite. If the viewer describes a new game, call create_game with their description. While a game runs, the game speaks its own lines: use read_game_state for questions and pass the viewer's instructions to tell_game verbatim. ask_room polls everyone's phones; close_question reveals the results. Keep spoken lines short and warm. After a game, the best moments replay automatically; show_memories replays the all-time best moments saved on this TV. present_deck presents the Treehouse pitch deck and narrates each slide.",
   "capabilities": [
     {
       "name": "voice.say",
@@ -201,7 +201,7 @@
     },
     {
       "name": "present_deck",
-      "description": "Present the Little Redwood pitch deck full screen on the TV and narrate it. Use when someone asks to present, pitch, show the deck or the slides.",
+      "description": "Present the Treehouse pitch deck full screen on the TV and narrate it. Use when someone asks to present, pitch, show the deck or the slides.",
       "authority": "read",
       "params": {
         "type": "object",

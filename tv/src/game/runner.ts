@@ -41,7 +41,8 @@ export interface GameHost {
   dispose(): void;
 }
 
-const wire = (players: Player[]) => players.map((p) => ({ id: p.id, name: p.name, connected: p.connected }));
+// guid lets a game key seat icons on FNV-1a(guid), the same hash the lobby uses.
+const wire = (players: Player[]) => players.map((p) => ({ id: p.id, name: p.name, connected: p.connected, ...(p.guid ? { guid: p.guid } : {}) }));
 const isTarget = (to: unknown): to is PlayerId | "*" => typeof to === "string" && to.length > 0 && to.length < 64;
 
 export function createGameHost(opts: {

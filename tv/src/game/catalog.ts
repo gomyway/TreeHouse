@@ -42,7 +42,10 @@ export async function listGames(): Promise<GameMeta[]> {
   const v = await getJson<unknown>(`${RELAY_HTTP}/games`);
   const list = (Array.isArray(v) ? v : []) as Omit<GameMeta, "source">[];
   const out: GameMeta[] = [];
-  for (const g of list) if (g && g.id && !out.some((o) => o.id === g.id)) out.push({ ...g, source: "relay" });
+  for (const g of list)
+    if (g && g.id && !out.some((o) => o.id === g.id))
+      // 16 players per game, period (relay room cap); older metas said up to 40.
+      out.push({ ...g, maxPlayers: g.maxPlayers ? Math.min(16, g.maxPlayers) : g.maxPlayers, source: "relay" });
   return out;
 }
 
