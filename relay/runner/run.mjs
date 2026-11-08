@@ -17,7 +17,7 @@
 //   AUTHOR_MODEL    default accounts/fireworks/models/gpt-oss-120b
 //   AUTHOR_THINKING default low
 //   AUTHOR_IMAGE    default little-redwood-author
-//   AUTHOR_TIMEOUT_S  agent wall clock, default 360
+//   AUTHOR_TIMEOUT_S  agent wall clock, default 660 (the full rule set needs 5-9 min of decode)
 
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, writeFileSync, readFileSync, existsSync, appendFileSync, statSync } from "node:fs";
@@ -60,7 +60,7 @@ const PROVIDER = env("AUTHOR_PROVIDER", "fireworks"); // fireworks | openrouter 
 const MODEL = env("AUTHOR_MODEL", PROVIDER === "openrouter" ? "anthropic/claude-opus-5.5" : "accounts/fireworks/models/deepseek-v4p1-flash-1017");
 const THINKING = env("AUTHOR_THINKING", "low");
 const IMAGE = env("AUTHOR_IMAGE", "little-redwood-author");
-const TIMEOUT_S = Number(env("AUTHOR_TIMEOUT_S", 360));
+const TIMEOUT_S = Number(env("AUTHOR_TIMEOUT_S", 660)); // 11 min: the relay job window is 15 min, the harness and publish need the rest
 const KEY_NAME = PROVIDER === "openrouter" ? "OPENROUTER_API_KEY" : "FIREWORKS_API_KEY";
 const API_KEY = env(KEY_NAME, "");
 const POLL_MS = 2000;
