@@ -202,6 +202,13 @@ export default function App() {
   }, []);
 
   const startGame = useCallback(async (meta: GameMeta) => {
+    // Single choke point for the start gate: every path (voice tool, remote Enter, the lobby tile's
+    // data-little-action, a click) lands here, so a game can never start under meta.minPlayers.
+    const blocked = whyNotStart(meta);
+    if (blocked) {
+      if (app.can("voice.say")) void app.voice.say(blocked);
+      throw new Error(blocked);
+    }
     // The host theme kit goes first in the bundle's <head>: shared fonts, palette and sizes.
     const html = await injectTheme(await loadGameHtml(meta), meta.palette);
     hostRef.current?.dispose();
@@ -211,7 +218,7 @@ export default function App() {
     setGameState(null);
     setQuestion(null);
     setView({ kind: "game", meta, html });
-  }, []);
+  }, [app]);
 
   // The GameView hands us its iframe; we bridge it once the bundle has loaded.
   const onFrame = useCallback(
@@ -581,7 +588,7 @@ export default function App() {
           status={room.status}
           games={games}
           focus={focus}
-          onPick={(g) => void startGame(g)}
+          onPick={(g) => void startGame(g).catch(() => {})}
         />
       )}
     </div>
