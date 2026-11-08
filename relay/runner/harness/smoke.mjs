@@ -104,7 +104,7 @@ if (meta) {
   if (!str("description")) fail("meta.description must be a non-empty string");
   if (!Array.isArray(meta.phases) || !meta.phases.length || !meta.phases.every((p) => typeof p === "string")) fail("meta.phases must be a non-empty array of strings");
   if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1) fail("meta.minPlayers must be an integer >= 1");
-  if (meta.maxPlayers !== undefined && (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1))) fail("meta.maxPlayers must be an integer >= minPlayers");
+  if (meta.maxPlayers !== undefined && (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1) || meta.maxPlayers > 16)) fail("meta.maxPlayers must be an integer >= minPlayers and at most 16");
   if (Number.isInteger(meta.minPlayers) && meta.minPlayers > 3) warn(`meta.minPlayers is ${meta.minPlayers}; the harness plays with 3`);
 }
 if (!existsSync(htmlPath)) fail(`tv.html not found at ${htmlPath}`);

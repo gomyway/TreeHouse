@@ -7,7 +7,7 @@ A bundle is two files in the job directory:
   - `title`: short game name.
   - `description`: one or two sentences a TV agent can read aloud.
   - `phases`: the phase names your `state` messages use, e.g. `["write", "vote", "reveal", "final"]`.
-  - `minPlayers` (integer >= 1), `maxPlayers` (integer >= minPlayers).
+  - `minPlayers` (integer >= 1), `maxPlayers` (integer >= minPlayers, at most 16).
   - `phonesRequired` (optional, default true): set false only for camera-only games that must
     start with nobody joined; phones then stay optional for names and bets.
   - `palette`: one of `"Noir"`, `"Broadcast"`, `"Paper"`, `"Arcade"`, `"Campfire"`, `"Lagoon"` (see

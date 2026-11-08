@@ -10,7 +10,7 @@
     "final"
   ],
   "minPlayers": 1,
-  "maxPlayers": 40,
+  "maxPlayers": 16,
   "createdAt": "2026-11-07T21:00:00.000Z",
   "prompt": "Hand-written house game: reverse Turing test with AI players (bot_answer), Find the Bot rounds then a Find the Human final.",
   "palette": "Noir",

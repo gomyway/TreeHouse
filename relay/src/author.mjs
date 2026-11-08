@@ -197,7 +197,7 @@ export function validateBundle(text) {
     if (typeof meta.description !== "string" || !meta.description.trim()) errors.push("meta.description must be a non-empty string");
     if (!Array.isArray(meta.phases) || !meta.phases.length || !meta.phases.every((p) => typeof p === "string")) errors.push("meta.phases must be a non-empty array of strings");
     if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1) errors.push("meta.minPlayers must be an integer >= 1");
-    if (meta.maxPlayers !== undefined && (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1))) errors.push("meta.maxPlayers must be an integer >= minPlayers");
+    if (meta.maxPlayers !== undefined && (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1) || meta.maxPlayers > 16)) errors.push("meta.maxPlayers must be an integer >= minPlayers and at most 16");
   }
   if (!html) errors.push("no ```html block with tv.html found");
   else {
@@ -287,7 +287,7 @@ async function author(env, prompt, context, onAttempt = () => {}) {
   const { meta: gen, html } = await generate(env, prompt, context, onAttempt);
   const meta = {
     title: gen.title.trim().slice(0, 80), description: gen.description.trim().slice(0, 400), phases: gen.phases,
-    minPlayers: gen.minPlayers, maxPlayers: gen.maxPlayers ?? Math.max(gen.minPlayers, 12),
+    minPlayers: gen.minPlayers, maxPlayers: Math.min(16, gen.maxPlayers ?? Math.max(gen.minPlayers, 12)),
     ...(typeof gen.palette === "string" ? { palette: gen.palette } : {}),
     ...(typeof gen.hook === "string" && gen.hook.trim() ? { hook: gen.hook.trim().slice(0, 200) } : {}),
     ...(Array.isArray(gen.seats) ? { seats: gen.seats.filter((x) => x && typeof x.name === "string" && typeof x.svg === "string").slice(0, 12) } : {}),
