@@ -231,3 +231,11 @@ body, .card, .game-tile, .pill, .code span { transition: background-color 600ms 
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 @keyframes hookIn { from { opacity: 0; transform: translateY(8px); } }
 .player .seat { flex: none; width: 56px; height: 56px; animation: pop 400ms cubic-bezier(.2,1.4,.4,1) both; }
+/* Six tiles plus the hook must fit the 1080 canvas: one-line blurbs, tighter tiles, smaller QR card. */
+.game-row { gap: 14px; margin-top: 10px; }
+.game-tile { padding: 16px 22px; gap: 4px; }
+.game-tile b { font-size: 30px; }
+.game-tile span { -webkit-line-clamp: 1; font-size: 22px; }
+.game-hook { font-size: 34px; margin: 6px 0 0; }
+.lobby-left .join { padding: 28px 40px; }
+.lobby-left .join .qr { width: 240px !important; height: 240px !important; }
