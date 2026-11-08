@@ -2,9 +2,16 @@
   "id": "whos-the-bot",
   "title": "Who's the Bot?",
   "description": "A reverse Turing test. Everyone answers a funny prompt on their phone while AI players secretly answer too. Vote the funniest, then catch the bot. Final round flips it: find the one human hiding among the bots.",
-  "phases": ["write", "vote", "reveal", "final"],
+  "phases": [
+    "intro",
+    "write",
+    "vote",
+    "reveal",
+    "final"
+  ],
   "minPlayers": 1,
   "maxPlayers": 40,
   "createdAt": "2026-11-07T21:00:00.000Z",
-  "prompt": "Hand-written house game: reverse Turing test with AI players (bot_answer), Find the Bot rounds then a Find the Human final."
+  "prompt": "Hand-written house game: reverse Turing test with AI players (bot_answer), Find the Bot rounds then a Find the Human final.",
+  "palette": "Noir"
 }

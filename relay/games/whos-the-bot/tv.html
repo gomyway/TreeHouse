@@ -5,90 +5,80 @@
 <meta name="viewport" content="width=1920, initial-scale=1">
 <title>Who's the Bot?</title>
 <style>
-  /* Laid out for the 1920x1080 TV canvas; read from across the room. */
-  :root {
-    --bg: #0b0f0c; --card: #172019; --line: #2a3a2e; --ink: #f2efe6; --ink2: #b7c2b4; --ink3: #7d8c7f;
-    --human: #ffc145; --bot: #4cc3ff; --hot: #e4572e; --good: #6bbf59;
-  }
+  /* Look kit: palette Noir (crime, bluffing). The TV host may inject the same tokens first; they
+     are defined here too so the bundle works without it. Three sizes, weights 400/500 only. */
+  :root { --bg: #0e0e10; --ink: #e8e0cf; --muted: #6e7480; --accent: #e5322d; --surface: #1c1c1e; --line: #2c2c30;
+    --font: "Satoshi", system-ui, sans-serif; --display: 10vh; --body: 4vh; --tiny: 2.4vh; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink);
-    font-family: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  body { background:
-    radial-gradient(1100px 600px at 90% -10%, rgba(76,195,255,.13), transparent 60%),
-    radial-gradient(900px 600px at -5% 110%, rgba(255,193,69,.10), transparent 60%), var(--bg); }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--font); font-weight: 400; }
+  b, strong, h1, h2, h3 { font-weight: 500; }
   #app { position: absolute; inset: 0; padding: 56px 80px 96px; display: flex; flex-direction: column; gap: 28px; }
 
-  header { display: flex; align-items: center; gap: 32px; height: 96px; }
-  .kicker { font-size: 26px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
-  .mode { font-size: 40px; font-weight: 800; letter-spacing: -.5px; }
-  .mode b { color: var(--bot); }
-  .mode.human b { color: var(--human); }
+  header { display: flex; align-items: center; gap: 32px; min-height: 96px; }
+  .kicker { font-size: var(--tiny); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+  .mode { font-size: var(--body); font-weight: 500; }
+  .mode b, .mode.human b { color: var(--accent); }
   .leaders { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-  .leaders .chip { display: flex; align-items: center; gap: 12px; padding: 10px 20px 10px 12px; border-radius: 999px;
-    background: var(--card); border: 2px solid var(--line); font-size: 28px; font-weight: 700; }
-  .leaders .chip .rk { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 22px;
-    background: #0b0f0c; color: var(--ink2); }
-  .leaders .chip:first-child { border-color: var(--human); } .leaders .chip:first-child .rk { background: var(--human); color: #1a1405; }
-  .leaders .chip .pts { color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .leaders .chip { display: flex; align-items: center; gap: 12px; padding: 10px 20px 10px 12px; border-radius: 1.2vh;
+    background: var(--surface); border: 2px solid var(--line); font-size: var(--tiny); }
+  .leaders .chip .rk { min-width: 40px; text-align: center; color: var(--muted); }
+  .leaders .chip:first-child { border-color: var(--accent); } .leaders .chip:first-child .rk { color: var(--accent); }
+  .leaders .chip .pts { color: var(--muted); font-variant-numeric: tabular-nums; }
   .ring { width: 96px; height: 96px; position: relative; flex: none; }
   .ring svg { transform: rotate(-90deg); }
-  .ring span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .ring span { position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--tiny); font-variant-numeric: tabular-nums; }
 
-  .prompt { font-size: 76px; line-height: 1.12; font-weight: 800; letter-spacing: -1px; max-width: 1700px; }
-  .sub { font-size: 34px; color: var(--ink2); }
+  .prompt { font-size: var(--display); line-height: 1.08; font-weight: 500; letter-spacing: -0.01em; max-width: 1700px; }
+  .prompt.small { font-size: var(--body); }
+  .sub { font-size: var(--tiny); color: var(--muted); }
   .dots { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
   .dots i { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); }
-  .dots i.on { background: var(--good); border-color: var(--good); animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
+  .dots i.on { background: var(--accent); border-color: var(--accent); animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
 
   .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; align-content: start; flex: 1; }
   .grid.n-few { grid-template-columns: repeat(3, 1fr); }
-  /* 2D only: the 3D flip (perspective/preserve-3d/backface-visibility) froze rendering in the
-     little dev simulator; a cross-fade is safe on every TV GPU. */
   .card { position: relative; min-height: 170px; }
-  .face { position: absolute; inset: 0; border-radius: 24px; transition: opacity .45s, transform .45s cubic-bezier(.3,1.3,.5,1); padding: 22px 26px 18px 92px;
-    background: var(--card); border: 2px solid var(--line); display: flex; flex-direction: column; justify-content: center; }
-  .face .letter { position: absolute; left: 22px; top: 22px; width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center;
-    font-size: 30px; font-weight: 800; background: #0b0f0c; border: 2px solid var(--line); color: var(--ink2); }
-  .face .txt { font-size: 38px; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: break-word; }
-  .face .meta { margin-top: 10px; font-size: 26px; color: var(--ink3); display: flex; gap: 16px; align-items: center; min-height: 32px; }
-  .face .meta .stars { color: var(--human); font-weight: 800; }
-  .face .meta .who { color: var(--ink); font-weight: 700; }
-  .back { opacity: 0; transform: scale(.85); background: linear-gradient(135deg, #0f2a38, #0b1820); border-color: var(--bot); }
-  .back .robot { font-size: 64px; position: absolute; left: 18px; top: 50%; transform: translateY(-50%); }
-  .back .txt { color: #cfeeff; }
-  .back .meta .who { color: var(--bot); }
+  .face { position: absolute; inset: 0; border-radius: 1.2vh; padding: 22px 26px 18px 92px; transition: opacity .45s, transform .45s cubic-bezier(.3,1.3,.5,1);
+    background: var(--surface); border: 2px solid var(--line); display: flex; flex-direction: column; justify-content: center; }
+  .face .letter { position: absolute; left: 22px; top: 22px; width: 52px; height: 52px; border-radius: 0.8vh; display: grid; place-items: center;
+    font-size: var(--tiny); background: var(--bg); border: 2px solid var(--line); color: var(--muted); }
+  .face .txt { font-size: var(--body); line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: break-word; }
+  .face .meta { margin-top: 10px; font-size: var(--tiny); color: var(--muted); display: flex; gap: 16px; align-items: center; min-height: 32px; }
+  .face .meta .stars { color: var(--ink); }
+  .face .meta .who { color: var(--ink); }
+  .back { opacity: 0; transform: scale(.85); background: var(--bg); border-color: var(--accent); }
+  .back .robot { position: absolute; left: 22px; top: 50%; transform: translateY(-50%); font-size: var(--tiny); letter-spacing: 0.15em; color: var(--accent); }
+  .back .meta .who { color: var(--accent); }
   .card.flipped .face:not(.back) { opacity: 0; transform: scale(.9); }
   .card.flipped .back { opacity: 1; transform: none; }
-  .card.human .face { border-color: var(--human); box-shadow: 0 0 40px rgba(255,193,69,.35); }
+  .card.human .face { border-color: var(--ink); }
   .card.dim { opacity: .35; }
   .card.glitch { animation: glitch .6s steps(2) 2; }
-  @keyframes glitch { 0% { transform: translate(0); filter: none; } 25% { transform: translate(-6px, 3px); filter: hue-rotate(90deg); }
-    50% { transform: translate(5px, -4px); } 75% { transform: translate(-3px, -2px); filter: hue-rotate(-90deg); } 100% { transform: translate(0); } }
+  @keyframes glitch { 0% { transform: translate(0); } 25% { transform: translate(-6px, 3px); } 50% { transform: translate(5px, -4px); } 75% { transform: translate(-3px, -2px); } 100% { transform: translate(0); } }
   @keyframes pop { from { transform: scale(.4); opacity: 0; } }
 
-  .banner { font-size: 64px; font-weight: 800; letter-spacing: -1px; }
-  .banner .b { color: var(--bot); } .banner .h { color: var(--human); }
-  .aiguess { font-size: 34px; color: var(--ink2); padding: 18px 26px; border-left: 6px solid var(--bot); background: rgba(76,195,255,.08); border-radius: 12px; max-width: 1600px; }
-  .aiguess b { color: var(--bot); }
+  .banner { font-size: var(--display); font-weight: 500; letter-spacing: -0.01em; }
+  .banner .b, .banner .h { color: var(--accent); }
+  .aiguess { font-size: var(--tiny); color: var(--muted); padding: 18px 26px; border-left: 6px solid var(--accent); background: var(--surface); border-radius: 0.8vh; max-width: 1600px; }
+  .aiguess b { color: var(--accent); }
 
   .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px; }
-  .big { font-size: 120px; font-weight: 900; letter-spacing: -3px; line-height: 1; }
-  .big .b { color: var(--bot); } .big .h { color: var(--human); }
+  .big { font-size: var(--display); font-weight: 500; line-height: 1.05; }
+  .big .b, .big .h { color: var(--accent); }
   .final { flex: 1; display: grid; grid-template-columns: 1fr 560px; gap: 40px; min-height: 0; }
   .ranking { list-style: none; display: flex; flex-direction: column; gap: 12px; }
   .ranking li { display: grid; grid-template-columns: 72px 1fr auto; align-items: center; gap: 20px; padding: 14px 28px;
-    border-radius: 20px; background: var(--card); border: 2px solid var(--line); font-size: 40px; font-weight: 700;
+    border-radius: 1.2vh; background: var(--surface); border: 2px solid var(--line); font-size: var(--body);
     animation: pop .45s cubic-bezier(.2,1.4,.4,1) both; }
-  .ranking li .rk { font-size: 36px; color: var(--ink3); text-align: center; }
-  .ranking li .pts { font-variant-numeric: tabular-nums; color: var(--ink2); }
-  .ranking li.first { border-color: var(--human); font-size: 52px; background: linear-gradient(90deg, rgba(255,193,69,.18), var(--card)); }
-  .ranking li.first .rk { color: var(--human); }
-  .ranking .more { font-size: 28px; color: var(--ink3); padding-left: 28px; }
+  .ranking li .rk { color: var(--muted); text-align: center; }
+  .ranking li .pts { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .ranking li.first { border-color: var(--accent); } .ranking li.first .rk { color: var(--accent); }
+  .ranking .more { font-size: var(--tiny); color: var(--muted); padding-left: 28px; }
   .awards { display: flex; flex-direction: column; gap: 20px; }
-  .award { background: var(--card); border: 2px solid var(--line); border-radius: 24px; padding: 24px 28px; text-align: left; }
-  .award .k { font-size: 22px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
-  .award .v { font-size: 44px; font-weight: 800; margin-top: 6px; }
-  .award .n { font-size: 24px; color: var(--ink2); margin-top: 4px; }
+  .award { background: var(--surface); border: 2px solid var(--line); border-radius: 1.2vh; padding: 24px 28px; text-align: left; }
+  .award .k { font-size: var(--tiny); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+  .award .v { font-size: var(--body); margin-top: 6px; }
+  .award .n { font-size: var(--tiny); color: var(--muted); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -228,9 +218,10 @@ function startRound(i) {
   };
   for (const p of humans) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
   const intro = mode === "bot"
-    ? `Round ${i + 1}. ${roundBots.length === 1 ? "One of you is a bot." : roundBots.length + " of you are bots."} ${round.prompt}.`
-    : `Final round, and it flips. ${roundBots.length} bots and ${writers.length === 1 ? "one human" : "two humans"} are writing. Everyone else, find the human. ${round.prompt}.`;
+    ? `Round ${i + 1}. ${roundBots.length === 1 ? "One of you is a bot." : roundBots.length + " of you are bots."}`
+    : "Final round flips. Find the one human among the bots.";
   send({ type: "say", text: intro });
+  send({ type: "say", text: `${round.prompt}.` });
   postState(`${mode === "bot" ? "Find the bot" : "Find the human"}, round ${i + 1} of ${plan.length}. Prompt: ${round.prompt}. ${writers.length} human writers and ${roundBots.length} hidden bots are answering.`);
   render();
   for (const b of roundBots) runBot(b);
@@ -381,7 +372,7 @@ function endVote() {
   if (r.mode === "bot") {
     const caughtNames = botCards.filter((c) => (r.guessCount.get(c.letter) ?? 0) === Math.max(0, ...r.guessCount.values()) && (r.guessCount.get(c.letter) ?? 0) > 0);
     const line = botCards.length === 1
-      ? `The bot was ${botCards[0].letter}, "${botCards[0].text}", by ${nameOf(botCards[0].author)}. ${caughtNames.length ? "You caught it!" : "It fooled you!"}`
+      ? `The bot was ${botCards[0].letter}. ${caughtNames.length ? "You caught it!" : "It fooled you!"}`
       : `The bots were ${and(botCards.map((c) => c.letter))}. ${caughtNames.length ? "Nice hunting." : "They fooled you."}`;
     later(2500, () => { r.stage = 1; render(); send({ type: "say", text: line }); });
     postState(`Reveal. ${line}`);
@@ -394,8 +385,9 @@ function endVote() {
     const order = shuffle(botCards);
     order.forEach((c, i) => later(1800 + i * 900, () => { r.flipped = (r.flipped ?? 0) + 1; r.flipOrder = order; render(); }));
     const found = humanCards.some((c) => (r.guessCount.get(c.letter) ?? 0) === Math.max(0, ...r.guessCount.values()) && (r.guessCount.get(c.letter) ?? 0) > 0);
-    const line = `The human was ${and(humanCards.map((c) => nameOf(c.author)))}, answer ${and(humanCards.map((c) => c.letter))}. ${found ? "The detectives found them!" : "The bots hid them perfectly."}${r.aiGuess ? (humanCards.some((c) => c.letter === r.aiGuess.letter) ? " And so did I." : " I guessed wrong, which never happens.") : ""}`;
-    later(1800 + order.length * 900 + 600, () => { r.stage = 1; render(); send({ type: "say", text: line }); });
+    const line = `The human was ${and(humanCards.map((c) => nameOf(c.author)))}. ${found ? "You found them!" : "The bots hid them."}`;
+    const aiLine = r.aiGuess ? (humanCards.some((c) => c.letter === r.aiGuess.letter) ? "And I guessed it too." : "I guessed wrong. That never happens.") : "";
+    later(1800 + order.length * 900 + 600, () => { r.stage = 1; render(); send({ type: "say", text: line }); if (aiLine) send({ type: "say", text: aiLine }); });
     postState(`Reveal. ${line}`);
     send({ type: "moment", kind: found ? "clutch" : "bot", title: found ? "The detectives found the human" : "The human hid among the bots",
       caption: `"${humanCards.map((c) => c.text).join('" and "')}" was really ${and(humanCards.map((c) => nameOf(c.author)))}.`, players: humanCards.map((c) => nameOf(c.author)) });
@@ -409,10 +401,12 @@ function finish() {
   const top = (m) => { let best = null, v = 0; for (const [id, n] of m) if (players.has(id) && n > v) { best = id; v = n; } return best ? { name: nameOf(best), n: v } : null; };
   round = { awards: { funny: top(funnyTotal), hunter: top(huntTotal), robotic: top(taggedTotal) }, ranked };
   const winners = ranked.filter((p) => p.rank === 1 && p.pts > 0).map((p) => p.name);
-  const winner = winners.length ? `${and(winners)} ${winners.length > 1 ? "win" : "wins"} with ${ranked[0].pts} points!` : "Nobody scored. The bots are very pleased.";
+  const winner = winners.length ? `${and(winners)} ${winners.length > 1 ? "win" : "wins"} with ${ranked[0].pts} points!` : "Nobody scored. The bots are pleased.";
   const a = round.awards;
   const awardsLine = [a.funny && `Funniest human: ${a.funny.name}.`, a.robotic && `Most robotic human: ${a.robotic.name}.`].filter(Boolean).join(" ");
-  send({ type: "say", text: `${winner} ${awardsLine}` });
+  send({ type: "say", text: winner });
+  if (a.funny) send({ type: "say", text: `Funniest human: ${a.funny.name}.` });
+  if (a.robotic) send({ type: "say", text: `Most robotic human: ${a.robotic.name}.` });
   if (winners.length) send({ type: "moment", kind: "win", title: `${and(winners)} ${winners.length > 1 ? "win" : "wins"} Who's the Bot?`, caption: `${ranked[0].pts} points`, players: winners });
   // Credits: one "award" moment per role.
   if (winners.length) send({ type: "moment", kind: "award", title: "Champion of Humanity", players: winners });
@@ -442,7 +436,7 @@ function screenFor(id) {
     const items = r.cards.filter((c) => c.letter !== own).map((c) => ({ id: c.letter, label: `${c.letter} · ${trunc(c.text, 34)}` }));
     if (r.mode === "human" && writer) return { kind: "info", title: "Stay cool.", body: "The detectives are hunting for you." };
     if (r.mode === "bot" && !r.funny.has(id)) return { kind: "buttons", prompt: "Which one is the funniest?", items, deadline: r.deadline - 1000 };
-    if (!r.guess.has(id)) return { kind: "buttons", prompt: r.mode === "bot" ? "Which one is the bot? 🤖" : "Which one is the human?", items, deadline: r.deadline - 1000 };
+    if (!r.guess.has(id)) return { kind: "buttons", prompt: r.mode === "bot" ? "Which one is the bot?" : "Which one is the human?", items, deadline: r.deadline - 1000 };
     return { kind: "info", title: "Locked in.", body: "Look at the TV." };
   }
   if (phase === "reveal") return { kind: "info", title: "Look at the TV!", body: `You have ${score.get(id) ?? 0} points.` };
@@ -456,8 +450,8 @@ function ring() {
   const total = phase === "write" ? WRITE_MS : VOTE_MS;
   const left = Math.max(0, r.deadline - Date.now());
   const C = 2 * Math.PI * 40;
-  return `<div class="ring"><svg width="96" height="96"><circle cx="48" cy="48" r="40" fill="none" stroke="#2a3a2e" stroke-width="10"/>
-    <circle id="ringfg" cx="48" cy="48" r="40" fill="none" stroke="${left < 8000 ? "#e4572e" : "#6bbf59"}" stroke-width="10" stroke-linecap="round"
+  return `<div class="ring"><svg width="96" height="96"><circle cx="48" cy="48" r="40" fill="none" style="stroke:var(--line)" stroke-width="10"/>
+    <circle id="ringfg" cx="48" cy="48" r="40" fill="none" style="stroke:${left < 8000 ? "var(--accent)" : "var(--ink)"}" stroke-width="10" stroke-linecap="round"
     stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - left / total)}"/></svg><span id="ringtxt">${Math.ceil(left / 1000)}</span></div>`;
 }
 function header() {
@@ -481,10 +475,10 @@ function cardHtml(c) {
   const stars = reveal && r.mode === "bot" ? (r.funnyCount.get(c.letter) ?? 0) : 0;
   const tags = reveal ? (r.guessCount.get(c.letter) ?? 0) : 0;
   const who = reveal && (r.stage >= 1 || (r.mode === "bot" && !bot)) ? nameOf(c.author) : "";
-  const meta = reveal ? `${stars ? `<span class="stars">★ ${stars}</span>` : ""}${tags ? `<span>${r.mode === "bot" ? "🤖" : "🔎"} ${tags}</span>` : ""}${who ? `<span class="who">${esc(who)}</span>` : ""}` : "";
+  const meta = reveal ? `${stars ? `<span class="stars">★ ${stars}</span>` : ""}${tags ? `<span>${tags} ${r.mode === "bot" ? "bot" : "human"} ${tags === 1 ? "vote" : "votes"}</span>` : ""}${who ? `<span class="who">${esc(who)}</span>` : ""}` : "";
   return `<div class="cardw"><div class="card${flipped ? " flipped" : ""}${cls}">
       <div class="face"><span class="letter">${c.letter}</span><div class="txt">${esc(c.text)}</div><div class="meta">${bot && flipped ? "" : meta}</div></div>
-      ${bot && reveal ? `<div class="face back"><span class="robot">🤖</span><div class="txt">${esc(c.text)}</div><div class="meta"><span class="who">BOT · ${esc(nameOf(c.author))}</span>${tags && r.mode === "bot" ? `<span>caught by ${tags}</span>` : ""}</div></div>` : ""}
+      ${bot && reveal ? `<div class="face back"><span class="robot">BOT</span><div class="txt">${esc(c.text)}</div><div class="meta"><span class="who">BOT · ${esc(nameOf(c.author))}</span>${tags && r.mode === "bot" ? `<span>caught by ${tags}</span>` : ""}</div></div>` : ""}
     </div></div>`;
 }
 function render() {
@@ -510,7 +504,7 @@ function render() {
     return;
   }
   const few = r.cards.length <= 6 ? " n-few" : "";
-  let top = `<div class="prompt" style="font-size:52px">${esc(r.prompt)}</div>`;
+  let top = `<div class="prompt small">${esc(r.prompt)}</div>`;
   if (phase === "vote") {
     const vs = voters();
     const done = vs.filter((p) => r.guess.has(p.id)).length;
@@ -529,7 +523,7 @@ setInterval(() => {
   const total = phase === "write" ? WRITE_MS : VOTE_MS;
   const left = Math.max(0, r.deadline - Date.now());
   const fg = document.getElementById("ringfg"), tx = document.getElementById("ringtxt");
-  if (fg) { const C = 2 * Math.PI * 40; fg.setAttribute("stroke-dashoffset", C * (1 - left / total)); fg.setAttribute("stroke", left < 8000 ? "#e4572e" : "#6bbf59"); }
+  if (fg) { const C = 2 * Math.PI * 40; fg.setAttribute("stroke-dashoffset", C * (1 - left / total)); fg.style.stroke = left < 8000 ? "var(--accent)" : "var(--ink)"; }
   if (tx) tx.textContent = Math.ceil(left / 1000);
 }, 250);
 
@@ -577,7 +571,9 @@ window.addEventListener("message", (e) => {
       phase = "intro";
       for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
       app.innerHTML = `<div class="center"><div class="kicker">Who's the Bot?</div><div class="big">Somebody here<br>is <span class="b">not human</span>.</div><div class="sub">Answer on your phone. Vote the funniest. Catch the bot.</div></div>`;
-      send({ type: "say", text: "Welcome to Who's the Bot. Somebody here is not human. Answer on your phone, vote the funniest, and catch the bot." });
+      send({ type: "say", text: "Welcome to Who's the Bot." });
+      send({ type: "say", text: "Somebody here is not human." });
+      send({ type: "say", text: "Answer, vote the funniest, and catch the bot." });
       postState("Intro: Who's the Bot? is starting.");
       later(INTRO_MS, () => startRound(0));
       break;

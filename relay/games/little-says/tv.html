@@ -5,57 +5,57 @@
 <meta name="viewport" content="width=1920, initial-scale=1">
 <title>Little Says</title>
 <style>
-  /* 1920x1080 TV canvas, read from across the room. */
-  :root { --bg: #0b0f0c; --card: #172019; --line: #2a3a2e; --ink: #f2efe6; --ink2: #b7c2b4; --ink3: #7d8c7f;
-    --p1: #ff7a59; --p2: #4cc3ff; --good: #6bbf59; --bad: #e4572e; --gold: #ffc145; }
+  /* Look kit: palette Arcade (reflexes, motion). The TV host may inject the same tokens first; they
+     are defined here too so the bundle works without it. Three sizes, weights 400/500 only. */
+  :root { --bg: #08090b; --ink: #ffffff; --muted: #7c8088; --accent: #00e5ff; --surface: #18191b; --line: #2a2c30;
+    --font: "Satoshi", system-ui, sans-serif; --display: 10vh; --body: 4vh; --tiny: 2.4vh; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink);
-    font-family: "Satoshi", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--font); font-weight: 400; }
+  b, strong, h1, h2, h3 { font-weight: 500; }
   #app { position: absolute; inset: 0; padding: 48px 80px 96px; display: flex; flex-direction: column; gap: 20px; }
-  header { display: flex; align-items: center; justify-content: space-between; height: 88px; }
-  .kicker { font-size: 26px; letter-spacing: 3px; text-transform: uppercase; color: var(--ink3); }
-  .title { font-size: 44px; font-weight: 800; } .title b { color: var(--gold); }
-  .meter { font-size: 26px; color: var(--ink2); }
+  header { display: flex; align-items: center; justify-content: space-between; min-height: 88px; }
+  .kicker { font-size: var(--tiny); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+  .title { font-size: var(--body); font-weight: 500; } .title b { color: var(--accent); }
+  .meter { font-size: var(--tiny); color: var(--muted); }
 
-  .command { text-align: center; min-height: 230px; display: flex; flex-direction: column; justify-content: center; }
-  .says { font-size: 52px; font-weight: 800; color: var(--gold); min-height: 64px; }
-  .do { font-size: 132px; font-weight: 900; letter-spacing: -4px; line-height: 1; }
-  .do.listen { animation: pulse 1s ease-in-out infinite; }
-  @keyframes pulse { 50% { transform: scale(1.12); opacity: .7; } }
-  .window { height: 14px; margin: 22px auto 0; width: 900px; border-radius: 7px; background: var(--line); overflow: hidden; }
-  .window i { display: block; height: 100%; width: 0; background: var(--gold); }
+  .command { text-align: center; min-height: 230px; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+  .says { font-size: var(--body); color: var(--accent); min-height: 4.6vh; text-transform: uppercase; letter-spacing: 0.1em; }
+  .do { font-size: var(--display); font-weight: 500; letter-spacing: 0.02em; line-height: 1; text-transform: uppercase; }
+  .do.listen { color: var(--muted); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .window { height: 14px; margin: 22px auto 0; width: 900px; border-radius: 0.6vh; background: var(--line); overflow: hidden; }
+  .window i { display: block; height: 100%; width: 0; background: var(--accent); }
   .window.run i { animation: fill var(--w) linear forwards; }
   @keyframes fill { from { width: 100%; } to { width: 0; } }
 
   .stage { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; min-height: 0; }
-  .who { position: relative; border-radius: 32px; border: 4px solid var(--line); background: var(--card); display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
-  .who.p1 { --c: var(--p1); } .who.p2 { --c: var(--p2); }
+  .who { position: relative; border-radius: 1.2vh; border: 3px solid var(--line); background: var(--surface); display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+  .who.p1 { --c: var(--accent); } .who.p2 { --c: var(--ink); }
   .who.seen { border-color: var(--c); }
-  .who.out { filter: grayscale(1); opacity: .5; }
-  .who.out::after { content: "OUT"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 150px; font-weight: 900; color: rgba(228,87,46,.85); transform: rotate(-12deg); }
-  .who svg { width: 300px; height: 100%; background: #0e1510; }
+  .who.out { opacity: .4; }
+  .who.out::after { content: "OUT"; position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--display); font-weight: 500; letter-spacing: 0.2em; color: var(--ink); background: rgba(8, 9, 11, .55); }
+  .who svg { width: 300px; height: 100%; background: var(--bg); }
   .info { padding: 28px 32px; display: flex; flex-direction: column; gap: 10px; }
-  .badge { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; font-size: 44px; font-weight: 900; background: var(--c); color: #10140f; }
-  .name { font-size: 54px; font-weight: 900; color: var(--c); line-height: 1.05; }
-  .sub { font-size: 26px; color: var(--ink3); }
-  .lives { font-size: 48px; letter-spacing: 6px; }
-  .pts { font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  .verdict { position: absolute; right: 28px; top: 24px; font-size: 48px; font-weight: 900; padding: 8px 24px; border-radius: 20px; animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
-  .verdict.good { background: var(--good); color: #0b150b; } .verdict.bad { background: var(--bad); color: #fff; }
+  .badge { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; font-size: var(--body); background: var(--c); color: var(--bg); }
+  .name { font-size: var(--body); color: var(--c); line-height: 1.05; }
+  .sub { font-size: var(--tiny); color: var(--muted); }
+  .lives { font-size: var(--body); letter-spacing: 0.15em; color: var(--c); }
+  .pts { font-size: var(--body); font-variant-numeric: tabular-nums; }
+  .verdict { position: absolute; right: 28px; top: 24px; font-size: var(--tiny); letter-spacing: 0.15em; padding: 8px 20px; border-radius: 0.8vh; animation: pop .35s cubic-bezier(.2,1.4,.4,1); }
+  .verdict.good { background: var(--accent); color: var(--bg); } .verdict.bad { background: var(--ink); color: var(--bg); }
   @keyframes pop { from { transform: scale(.4); opacity: 0; } }
 
   .grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; align-content: start; }
-  .pcard { position: relative; border-radius: 24px; border: 3px solid var(--line); background: var(--card); padding: 22px 26px; display: flex; flex-direction: column; gap: 6px; }
-  .pcard .name { font-size: 40px; color: var(--ink); } .pcard .lives { font-size: 34px; } .pcard .pts { font-size: 30px; }
-  .pcard.out { filter: grayscale(1); opacity: .45; }
-  .pcard .verdict { font-size: 30px; right: 16px; top: 16px; padding: 4px 14px; }
+  .pcard { position: relative; border-radius: 1.2vh; border: 3px solid var(--line); background: var(--surface); padding: 22px 26px; display: flex; flex-direction: column; gap: 6px; --c: var(--accent); }
+  .pcard .name { color: var(--ink); } .pcard.out { opacity: .4; }
+
   .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 28px; }
-  .big { font-size: 110px; font-weight: 900; letter-spacing: -3px; line-height: 1.02; } .big .g { color: var(--gold); }
-  .sub2 { font-size: 36px; color: var(--ink2); max-width: 1500px; }
+  .big { font-size: var(--display); font-weight: 500; line-height: 1.02; } .big .g { color: var(--accent); }
+  .sub2 { font-size: var(--tiny); color: var(--muted); max-width: 1500px; }
   .ranking { list-style: none; display: flex; flex-direction: column; gap: 12px; width: 1100px; }
-  .ranking li { display: grid; grid-template-columns: 72px 1fr auto; gap: 20px; align-items: center; padding: 14px 28px; border-radius: 20px;
-    background: var(--card); border: 2px solid var(--line); font-size: 40px; font-weight: 700; text-align: left; }
-  .ranking li.first { border-color: var(--gold); font-size: 50px; } .ranking .rk { color: var(--ink3); text-align: center; }
+  .ranking li { display: grid; grid-template-columns: 72px 1fr auto; gap: 20px; align-items: center; padding: 14px 28px; border-radius: 1.2vh;
+    background: var(--surface); border: 2px solid var(--line); font-size: var(--body); text-align: left; }
+  .ranking li.first { border-color: var(--accent); } .ranking .rk { color: var(--muted); text-align: center; }
 </style>
 </head>
 <body>
@@ -95,7 +95,7 @@ function pickMove() {
   const from = fresh.length && Math.random() < 0.6 ? fresh : pool;
   return from[Math.floor(Math.random() * from.length)];
 }
-const COLORS = ["#ff7a59", "#4cc3ff"];
+const COLORS = ["#00e5ff", "#ffffff"]; // Arcade accent and ink
 const BONES = [["left_shoulder","right_shoulder"],["left_shoulder","left_elbow"],["left_elbow","left_wrist"],["right_shoulder","right_elbow"],["right_elbow","right_wrist"],
   ["left_shoulder","left_hip"],["right_shoulder","right_hip"],["left_hip","right_hip"],["left_hip","left_knee"],["left_knee","left_ankle"],["right_hip","right_knee"],["right_knee","right_ankle"]];
 
@@ -165,11 +165,10 @@ const refreshPhones = () => { for (const p of active()) send({ type: "screen", t
 // ---------- flow ----------
 function startSetup() {
   token++; phase = "setup";
-  send({ type: "motion_start", mode: "people", maxPlayers: 2 });
+  send({ type: "motion_start", mode: "people", maxPlayers: 2, actions: ["arm-raise", "both-arms-raise"] });
   refreshPhones();
-  say(active().length
-    ? "Little Says! One or two players, stand in front of the TV. Find your figure, and tap That's me on your phone if you like."
-    : "Little Says! One or two players, stand in front of the TV.");
+  say("Little Says! One or two players, step in front of the TV.");
+  if (active().length) say("Tap That's me on your phone to add your name.");
   postState("Setup: players step in front of the TV; each gets a numbered figure.");
   render();
   later(SETUP_MS, startPlay);
@@ -190,19 +189,20 @@ function claim(phone, choice) {
 function enterPhoneMode(reason) {
   if (phoneMode || phase === "final") return;
   send({ type: "motion_stop" });
-  if (!active().length) { say("I can't see anyone and nobody joined by phone. Let's try again later."); return finish(); }
+  if (!active().length) { say("Nobody here yet. Let's try again later."); return finish(); }
   phoneMode = true;
   for (const p of active().slice(0, 12)) pp.set(p.id, { name: p.name, lives: LIVES, pts: 0, out: false });
   postState(`No camera (${reason}): playing on phones with ${pp.size} players.`);
   token++; phase = "setup";
-  say("No camera today, so we'll play on your phones! Tap the arm you'd raise, but only when Little says.", true).then(() => { phase = "setup"; startPlay(); });
+  say("No camera today, so let's play on phones.");
+  say("Tap the move, but only when Little says.", true).then(() => { phase = "setup"; startPlay(); });
 }
 
 function startPlay() {
   if (phase !== "setup") return;
   if (!phoneMode && !inGame().length && active().length) return enterPhoneMode("nobody seen");
   token++; phase = "play"; n = 0;
-  if (!phoneMode && !inGame().length) { say("I can't see anyone in front of the TV. Let's try again later."); return finish(); }
+  if (!phoneMode && !inGame().length) { say("I can't see anyone. Let's try again later."); return finish(); }
   refreshPhones(); render();
   say("Only move when Little says. Arms down. Here we go!", true).then(() => later(600, nextCommand));
 }
@@ -270,7 +270,7 @@ function did(i, move) {
 const movedAtAll = (i) => current.events[i].length > 0 || current.frames[i].some((f) => f.size > 0);
 function judge() {
   if (phase !== "play" || !current) return;
-  const c = current, lines = [];
+  const c = current, lines = [], outs = [];
   c.open = false; c.judged = true;
   if (phoneMode) {
     for (const [id, p] of pp) {
@@ -282,13 +282,13 @@ function judge() {
       else { ok = false; why = a ? "WRONG" : "TOO SLOW"; }
       p.verdict = { ok, why };
       if (ok) p.pts += 100;
-      else { p.lives--; if (p.lives <= 0) { p.out = true; lines.push(`${p.name} is out!`); } }
+      else { p.lives--; if (p.lives <= 0) { p.out = true; outs.push(p.name); } }
     }
     const gotcha = [...pp.values()].filter((p) => p.verdict && !p.verdict.ok && c.trap && !p.out).map((p) => p.name);
     if (gotcha.length) lines.unshift(`Gotcha, ${gotcha.slice(0, 2).join(" and ")}!`);
     render(); refreshPhones();
     postState(`Command ${n}: ${c.trap ? "trap, " : ""}${c.move.text}. ${[...pp.values()].map((p) => `${p.name} ${p.out ? "out" : p.lives + " lives"}, ${p.pts}`).join("; ")}`);
-    const line = lines.slice(0, 2).join(" ");
+    const line = outs.length ? `${outs.join(" and ")} ${outs.length > 1 ? "are" : "is"} out!` : (lines[0] ?? ""); // one beat, one "!"
     const go = () => later(REST_MS, nextCommand);
     if (line) say(line, true).then(go); else go();
     return;
@@ -306,7 +306,7 @@ function judge() {
     if (ok) w.pts += 100;
     else {
       w.lives--;
-      if (w.lives <= 0) { w.out = true; lines.push(`${w.name} is out!`); }
+      if (w.lives <= 0) { w.out = true; outs.push(w.name); }
       else if (c.trap) lines.push(`Gotcha, ${w.name}! I never said Little says.`);
       else if (c.kidding) lines.push(`${w.name}, I said just kidding!`);
       else if (why === "WRONG MOVE") lines.push(`Not quite, ${w.name}!`);
@@ -314,7 +314,7 @@ function judge() {
   }
   render(); refreshPhones();
   postState(`Command ${n}: ${c.trap ? "trap, " : ""}${c.move.text}. ${who.filter((w) => w.everSeen).map((w) => `${w.name} ${w.out ? "out" : w.lives + " lives"}, ${w.pts} pts`).join("; ")}`);
-  const line = lines.slice(0, 2).join(" ");
+  const line = outs.length ? `${outs.join(" and ")} ${outs.length > 1 ? "are" : "is"} out!` : (lines[0] ?? ""); // one beat, one "!"
   const go = () => later(REST_MS, nextCommand);
   if (line) say(line, true).then(go); else go();
 }
@@ -327,8 +327,10 @@ function finish() {
   const win = ranked[0], wi = win && !phoneMode ? who.indexOf(win) : -1, correct = [];
   for (const [id, i] of bets) if (i === wi) { betPts.set(id, 100); correct.push(players.get(id)?.name ?? "someone"); }
   final = { ranked, correct };
-  const line = win ? `${win.name} wins Little Says with ${win.pts} points!${correct.length ? ` Good bets from ${correct.slice(0, 3).join(", ")}.` : ""}` : "Nobody played. Next time!";
-  say(line); refreshPhones(); postState(`Game over. ${line}`); render();
+  const line = win ? `${win.name} wins Little Says with ${win.pts} points!` : "Nobody played. Next time!";
+  say(line);
+  if (correct.length) say(`Good bets from ${correct.slice(0, 3).join(", ")}.`);
+  refreshPhones(); postState(`Game over. ${line}`); render();
   if (win) {
     send({ type: "moment", kind: "win", title: `${win.name} wins Little Says`, caption: `${win.pts} points${win.out ? "" : ", still standing"}`, players: [win.name] });
     send({ type: "moment", kind: "award", title: "Little Says Champion", players: [win.name] });
@@ -342,7 +344,7 @@ function finish() {
 // ---------- TV rendering ----------
 function figureSvg(i) {
   const f = who[i].fig, c = COLORS[i];
-  if (!f) return `<svg viewBox="0 0 300 600"><text x="150" y="300" fill="#7d8c7f" font-size="26" text-anchor="middle">step in</text></svg>`;
+  if (!f) return `<svg viewBox="0 0 300 600"></svg>`;
   // Fit the person's box into the panel.
   const b = f.box, s = Math.min(260 / Math.max(b.w, 0.01), 560 / Math.max(b.h, 0.01));
   const X = (x) => 150 + (x - (b.x + b.w / 2)) * s, Y = (y) => 300 + (y - (b.y + b.h / 2)) * s;
@@ -372,12 +374,12 @@ function render(windowArg) {
   const head = `<header><div><div class="kicker">${phase === "play" ? `Command ${n} of ${COMMANDS_MAX}` : "Who's playing?"}</div><div class="title"><b>Little</b> Says</div></div>
     <div class="meter">camera: ${esc(motionState)}${bets.size ? ` · bets: ${bets.size}` : ""}</div></header>`;
   let mid;
-  if (phase === "setup") mid = `<div class="command"><div class="says">Find your figure</div><div class="do" style="font-size:92px">${who.some((w) => w.seen) ? "Raise an arm to wave!" : "Stand in front of the TV"}</div></div>`;
+  if (phase === "setup") mid = `<div class="command"><div class="says">Find your figure</div><div class="do">${who.some((w) => w.seen) ? "Raise an arm to wave!" : "Stand in front of the TV"}</div></div>`;
   else if (current) {
     const judged = verdicts.some(Boolean);
     mid = judged
       ? `<div class="command"><div class="says">${current.trap ? "Trap! Nobody said Little says:" : "Little says:"}</div><div class="do" style="color:${current.trap ? "var(--bad)" : "var(--ink)"}">${current.move.show}</div></div>`
-      : `<div class="command"><div class="says">Listen…</div><div class="do listen">👂</div><div class="window ${windowArg ? "run" : ""}" style="--w:${windowArg ?? 0}ms"><i></i></div></div>`;
+      : `<div class="command"><div class="says">Wait for it</div><div class="do listen">Listen</div><div class="window ${windowArg ? "run" : ""}" style="--w:${windowArg ?? 0}ms"><i></i></div></div>`;
   } else mid = `<div class="command"><div class="says">Only move when Little says</div><div class="do">ARMS DOWN</div></div>`;
   if (phoneMode) {
     const cards = [...pp.values()].map((p) => `<section class="pcard ${p.out ? "out" : ""}"><div class="name">${esc(p.name)}</div>

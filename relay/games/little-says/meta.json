@@ -3,7 +3,7 @@
   "title": "Little Says",
   "description": "Simon Says, called by the TV and judged by its camera. One or two players stand in front of the TV and follow \"Little says… left arm up!\", but move on a command without \"Little says\" and you lose a life. No phone needed; anyone with a phone can pick a lane name or bet on who survives.",
   "phases": [
-    "lanes",
+    "setup",
     "calibrate",
     "play",
     "final"
@@ -12,5 +12,6 @@
   "maxPlayers": 40,
   "createdAt": "2026-11-07T22:10:00.000Z",
   "prompt": "Hand-written camera game: AI-called Simon Says for up to 2 players via motion_start (arm-raise, both-arms-raise), audience bets on phones.",
-  "phonesRequired": false
+  "phonesRequired": false,
+  "palette": "Arcade"
 }
