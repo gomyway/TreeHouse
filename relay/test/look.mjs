@@ -118,8 +118,8 @@ expect(run("no seat icon on the phone warns", { tv: TV.replace("for (const p of 
 // Lobby card (SKILL.md "Lobby card").
 const lob = (a, b) => { if (!LOBBY.includes(a)) throw new Error(`sample lobby.html no longer contains ${a}`); return LOBBY.replace(a, b); };
 const lobCss = (extra) => lob("</style>", extra + "\n</style>");
-expect(run("missing lobby fails", { lobby: null }), false, /lobby\.html not found at .*: write the lobby card/, "no lobby.html");
-const warnMissing = run("missing lobby warns with --lobby=warn", { lobby: null, args: ["--lobby=warn"] });
+expect(run("missing lobby fails with --lobby=fail", { lobby: null, args: ["--lobby=fail"] }), false, /lobby\.html not found at .*: write the lobby card/, "no lobby.html");
+const warnMissing = run("missing lobby warns by default", { lobby: null });
 expect(warnMissing, true, /warn: lobby\.html not found/, "--lobby=warn");
 expect(warnMissing, true, /hook yes; lobby: missing$/m, "summary says missing");
 expect(run("lobby without player names fails", { lobby: lob('el.querySelector(".nm").textContent = short(name);', 'el.querySelector(".nm").textContent = "Player";') }),
