@@ -4,7 +4,8 @@
 // shows, answers ai / ai_image / bot_answer requests, and checks that the game keeps going.
 //
 //   node harness/smoke.mjs [bundleDir]            (default: the current directory)
-//   node harness/smoke.mjs --html x/tv.html --meta x/meta.json
+//   node harness/smoke.mjs --html x/tv.html --meta x/meta.json [--lobby-html x/lobby.html]
+//   options: --lobby=warn|fail (a missing lobby.html: warning or failure; default fail)
 //   options: --speed 20 (game clock runs this many times faster than real time)
 //            --budget 300 (game-time seconds per pass before giving up)
 //            --ai both|ok|fail (which passes to run: AI calls answered + camera ready,
@@ -45,10 +46,30 @@
 // A "look:" line prints the static checks once (palette, colours, font sizes, max weight, emoji, seats,
 // hook); each pass then prints "look <pass>:" with its longest say and its seats result.
 //
+// Lobby card (SKILL.md "Lobby card"), lobby.html beside tv.html, loaded in a second jsdom window at 1280x1080:
+//   FAIL  lobby.html missing (--lobby=warn makes that a warning, for hand-built bundles; default fail).
+//   FAIL  uncaught errors; a <script src>, an external src/href, @import or a url() that is not data:/#/blob:;
+//         an <audio> tag or new Audio(); network or storage use; any posted type other than lobby_ready, or no
+//         lobby_ready within 2 s of load (WARN when posted more than once).
+//   It then gets { type: "lobby" } with 4 players (one with a guid), code "DEMO", joinUrl
+//   "https://play.example/?c=DEMO", minPlayers 3, maxPlayers 8, ready true, and FAILs when a player name,
+//   "DEMO" or "play.example" is missing from the DOM text, fewer than 4 of those players have a
+//   [data-player] seat, fewer than 4 (maxPlayers - players) [data-slot="empty"] slots exist, the element
+//   holding the code is under 14vh (its font-size through a small selector-specificity cascade, var()
+//   resolved; when it cannot be resolved, any font-size >= 14vh in the CSS), there is no title treatment
+//   (an <svg> whose <title>/aria-label/text names meta.title with >= 3 path/text/tspan elements, or an
+//   element whose own text holds meta.title at >= 12vh), or no CSS animation (@keyframes plus an
+//   animation/animation-name that is not none). A second message (2 players, ready false) must change the
+//   text of the [data-status] element. The look checks above (colours, weights, sizes, radii, emoji) run on
+//   lobby.html too; the static look line ends with "lobby: ok" or "lobby: <reasons>", and a "lobby card:"
+//   line summarises the card checks. say checks do not apply to it. A third message brings a full room
+//   (16 players, maxPlayers 16): FAIL unless all 16 names are shown and all 16 have a [data-player] seat.
+//   jsdom does no layout, so whether the card scrolls or overflows is not measured.
+//
 // Exit 0 and a final "SMOKE PASS" line when everything holds; exit 1 and "SMOKE FAIL" otherwise.
 
 import { readFileSync, existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { createRequire } from "node:module";
 
 // jsdom is resolved with require() so NODE_PATH works (the Docker image installs it globally).
@@ -61,7 +82,7 @@ catch { console.error("SMOKE FAIL\n- jsdom is not installed (npm i jsdom, or set
 const argv = process.argv.slice(2);
 const opt = (name, d) => { const i = argv.indexOf("--" + name); return i >= 0 ? argv[i + 1] : d; };
 const flag = (name) => argv.includes("--" + name);
-const positional = argv.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--html", "--meta", "--speed", "--budget", "--ai"].includes(argv[i - 1])));
+const positional = argv.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--html", "--meta", "--speed", "--budget", "--ai", "--lobby", "--lobby-html"].includes(argv[i - 1])));
 const dir = resolve(positional[0] ?? ".");
 const htmlPath = resolve(opt("html", join(dir, "tv.html")));
 const metaPath = resolve(opt("meta", join(dir, "meta.json")));
@@ -69,6 +90,9 @@ const SPEED = Number(opt("speed", 20));
 const BUDGET_MS = Number(opt("budget", 300)) * 1000;   // game time
 const AI_MODE = opt("ai", "both");
 const VERBOSE = flag("verbose");
+const lobbyPath = resolve(opt("lobby-html", join(dirname(htmlPath), "lobby.html")));
+const LOBBY_MODE = (argv.find((a) => a.startsWith("--lobby="))?.slice(8)) ?? opt("lobby", "fail");
+if (!["warn", "fail"].includes(LOBBY_MODE)) { console.error(`--lobby must be warn or fail, got ${LOBBY_MODE}`); process.exit(2); }
 
 const PLAYERS = [
   { id: "p1", name: "Ada", connected: true },
@@ -104,7 +128,7 @@ if (meta) {
   if (!str("description")) fail("meta.description must be a non-empty string");
   if (!Array.isArray(meta.phases) || !meta.phases.length || !meta.phases.every((p) => typeof p === "string")) fail("meta.phases must be a non-empty array of strings");
   if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1) fail("meta.minPlayers must be an integer >= 1");
-  if (meta.maxPlayers !== undefined && (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1))) fail("meta.maxPlayers must be an integer >= minPlayers");
+  if (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1) || meta.maxPlayers > 16) fail(`meta.maxPlayers must be an integer with minPlayers <= maxPlayers <= 16 (got ${JSON.stringify(meta.maxPlayers)})`);
   if (Number.isInteger(meta.minPlayers) && meta.minPlayers > 3) warn(`meta.minPlayers is ${meta.minPlayers}; the harness plays with 3`);
 }
 if (!existsSync(htmlPath)) fail(`tv.html not found at ${htmlPath}`);
@@ -134,9 +158,34 @@ if (html) {
 const PALETTES = ["Noir", "Broadcast", "Paper", "Arcade", "Campfire", "Lagoon"];
 const lookFails = [], lookWarns = [];
 const look = analyzeLook(html ?? "", meta);
-function analyzeLook(src, meta) {
-  const lf = (s) => { if (!lookFails.includes(s)) lookFails.push(s); };
-  const lw = (s) => { if (!lookWarns.includes(s)) lookWarns.push(s); };
+// CSS of a page as declarations: <style> blocks (innermost {...} only, so @media bodies still yield their
+// rules) and style="..." attributes anywhere (static markup and JS template strings; ring = the element's
+// class says so). resolve() expands var(--x) through the custom properties found.
+function parseCss(src) {
+  const isRing = (s) => /ring/i.test(s);
+  const rules = [];
+  for (const m of src.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+    const css = m[1].replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const r of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) rules.push({ sel: r[1].trim(), body: r[2], ring: isRing(r[1]) });
+  }
+  for (const m of src.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
+    const start = src.lastIndexOf("<", m.index), tag = src.slice(start, src.indexOf(">", m.index + m[0].length) + 1);
+    const cls = (tag.match(/\bclass\s*=\s*["']([^"']*)/i) ?? [])[1] ?? "";
+    rules.push({ sel: "inline", body: m[1] ?? m[2], ring: isRing(cls) });
+  }
+  const decls = [];
+  for (const r of rules) for (const d of r.body.split(";")) {
+    const i = d.indexOf(":"); if (i < 0) continue;
+    decls.push({ sel: r.sel, ring: r.ring, prop: d.slice(0, i).trim().toLowerCase(), value: d.slice(i + 1).trim() });
+  }
+  const vars = new Map(decls.filter((d) => d.prop.startsWith("--")).map((d) => [d.prop, d.value]));
+  const resolve = (v, n = 0) => n > 4 ? v : v.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\)/g, (_, k, fb) => vars.has(k) ? resolve(vars.get(k), n + 1) : (fb ?? k));
+  return { rules, decls, vars, resolve };
+}
+// The look checks on one page. meta is null for lobby.html (palette and seats are checked once, on tv.html).
+function analyzeLook(src, meta, sink = { fails: lookFails, warns: lookWarns }, file = "tv.html") {
+  const lf = (s) => { if (!sink.fails.includes(s)) sink.fails.push(s); };
+  const lw = (s) => { if (!sink.warns.includes(s)) sink.warns.push(s); };
   const out = { palette: "none", colours: 0, sizes: [], maxWeight: 400, emoji: 0, seats: 0, seatIcons: [], hook: false };
   if (meta && typeof meta === "object") {
     if (meta.palette === undefined) lw(`meta.palette is missing: pick one of ${PALETTES.join(", ")} and use its four tokens`);
@@ -170,26 +219,7 @@ function analyzeLook(src, meta) {
     if (!out.hook) lw("meta.hook is missing: one sentence naming the game's world");
   }
   if (!src) return out;
-  const isRing = (s) => /ring/i.test(s);
-  // Rules from <style> blocks (innermost {...} only, so @media bodies still yield their rules).
-  const rules = [];
-  for (const m of src.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
-    const css = m[1].replace(/\/\*[\s\S]*?\*\//g, "");
-    for (const r of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) rules.push({ sel: r[1].trim(), body: r[2], ring: isRing(r[1]) });
-  }
-  // style="..." attributes anywhere (static markup and JS template strings); ring = the element's class says so.
-  for (const m of src.matchAll(/\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
-    const start = src.lastIndexOf("<", m.index), tag = src.slice(start, src.indexOf(">", m.index + m[0].length) + 1);
-    const cls = (tag.match(/\bclass\s*=\s*["']([^"']*)/i) ?? [])[1] ?? "";
-    rules.push({ sel: "inline", body: m[1] ?? m[2], ring: isRing(cls) });
-  }
-  const decls = [];
-  for (const r of rules) for (const d of r.body.split(";")) {
-    const i = d.indexOf(":"); if (i < 0) continue;
-    decls.push({ sel: r.sel, ring: r.ring, prop: d.slice(0, i).trim().toLowerCase(), value: d.slice(i + 1).trim() });
-  }
-  const vars = new Map(decls.filter((d) => d.prop.startsWith("--")).map((d) => [d.prop, d.value]));
-  const resolve = (v, n = 0) => n > 4 ? v : v.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\)/g, (_, k, fb) => vars.has(k) ? resolve(vars.get(k), n + 1) : (fb ?? k));
+  const { rules, decls, vars, resolve } = parseCss(src);
 
   // Colours.
   const FORBIDDEN = ["b98cff", "f6f3ff", "ffd23f", "3ddc84", "5fe0c0"].map((h) => [h, [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16))]);
@@ -269,7 +299,7 @@ function analyzeLook(src, meta) {
   const emo = [];
   for (const { segment } of seg.segment(src)) if (/\p{Emoji_Presentation}|️/u.test(segment) && !/^[\d#*]$/.test(segment)) emo.push(segment);
   out.emoji = emo.length;
-  if (emo.length > 2) lf(`${emo.length} emoji in tv.html (${[...new Set(emo)].slice(0, 10).join(" ")}): no emoji as UI, use text glyphs or inline SVG (2 allowed)`);
+  if (emo.length > 2) lf(`${emo.length} emoji in ${file} (${[...new Set(emo)].slice(0, 10).join(" ")}): no emoji as UI, use text glyphs or inline SVG (2 allowed)`);
   return out;
 }
 // Player names are not counted: the design rules require naming the players, and a list of them
@@ -620,9 +650,216 @@ function runPass(aiOk) {
   });
 }
 
+// ---------- lobby card (SKILL.md "Lobby card") ----------
+const LOBBY_PLAYERS = [
+  { id: "p1", name: "Ada", connected: true },
+  { id: "p2", name: "Bo", guid: "guid-bo-0002", connected: true },
+  { id: "p3", name: "Cy", connected: true },
+  { id: "p4", name: "Dee", connected: true },
+];
+const LOBBY_MSG = { type: "lobby", code: "DEMO", joinUrl: "https://play.example/?c=DEMO", players: LOBBY_PLAYERS, minPlayers: 3, maxPlayers: 8, ready: true, focused: true };
+const LOBBY_MSG2 = { ...LOBBY_MSG, players: LOBBY_PLAYERS.slice(0, 2), ready: false };
+// A full room: 16 players (the most a game takes), names up to 10 characters (longer ones may be abbreviated).
+const FULL_ROOM = [...LOBBY_PLAYERS, ...["Eli", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kai", "Liv", "Max", "Nia", "Oz", "Marguerite"]
+  .map((name, i) => ({ id: `p${i + 5}`, name, connected: true }))];
+const LOBBY_MSG3 = { ...LOBBY_MSG, players: FULL_ROOM, maxPlayers: 16, ready: true };
+const LOBBY_W = 1280, LOBBY_H = 1080;
+
+// Specificity of one selector, as a comparable number (ids, classes/attributes/pseudo-classes, types).
+function specificity(sel) {
+  const a = (sel.match(/#[\w-]+/g) ?? []).length;
+  const b = (sel.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)(?!not\(|is\(|where\()[\w-]+/g) ?? []).length;
+  const c = (sel.replace(/\[[^\]]*\]|\([^)]*\)/g, "").match(/(^|[\s>+~])[a-z][\w-]*/gi) ?? []).length;
+  return a * 10000 + b * 100 + c;
+}
+// A length in vh at the 1280x1080 pane; em/% scale the parent's size; null when it cannot be read.
+function toVh(v, parentVh) {
+  const m = String(v).trim().match(/^(\d*\.?\d+)(vh|vw|vmin|vmax|px|rem|em|%)$/);
+  if (!m) return null;
+  const n = +m[1], px = LOBBY_H / 100;
+  return { vh: n, vw: (n * LOBBY_W) / LOBBY_H, vmin: n, vmax: (n * LOBBY_W) / LOBBY_H, px: n / px, rem: (n * 16) / px,
+    em: parentVh === null ? null : n * parentVh, "%": parentVh === null ? null : (n / 100) * parentVh }[m[2]];
+}
+
+async function runLobby(src, title) {
+  const lf = [], lw = [];
+  const F = (s) => { if (!lf.includes(s)) lf.push(s); };
+  const W = (s) => { if (!lw.includes(s)) lw.push(s); };
+  const card = { seats: 0, slots: 0, codeVh: null, title: "none", status: "", ready: 0, full: 0 };
+
+  // Static: self-contained, silent, no network.
+  if (!/<!doctype html|<html[\s>]/i.test(src)) F("lobby.html is not a complete html document (no <!doctype html> or <html>)");
+  if (/<script\b[^>]*\bsrc\s*=/i.test(src)) F("lobby.html has a <script src=...>; inline all code");
+  for (const m of src.matchAll(/<[a-z][^>]*?\s(src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
+    const v = (m[2] ?? m[3] ?? m[4] ?? "").trim();
+    if (v && !/^(data:|blob:|#|javascript:void)/i.test(v) && !v.includes("${")) F(`lobby.html references an external resource: ${m[1]}="${v.slice(0, 80)}"`);
+  }
+  if (/@import\b/i.test(src)) F("lobby.html CSS uses @import: inline the styles");
+  for (const m of src.matchAll(/url\(\s*(["']?)([^)"']*)\1\s*\)/gi)) {
+    const v = m[2].trim();
+    if (v && !/^(data:|#|blob:)/i.test(v) && !v.includes("${")) F(`lobby.html CSS loads an external resource: url(${v.slice(0, 60)}) (fonts and images inline as data: URLs, or none)`);
+  }
+  if (/<audio\b/i.test(src) || /\bnew\s+Audio\s*\(/.test(src)) F("lobby.html plays audio (an <audio> tag or new Audio()): the lobby card is silent");
+  const net = src.match(/\bfetch\s*\(|\bXMLHttpRequest\b|\bnew\s+WebSocket\b|\bWebSocket\s*\(|\bEventSource\b|\bimport\s*\(|\bsendBeacon\b/);
+  if (net) F(`lobby.html uses the network (${net[0].trim()}); the card has no network`);
+  const store = src.match(/\b(localStorage|sessionStorage|indexedDB|document\.cookie)\b/);
+  if (store) F(`lobby.html uses ${store[1]}; the sandboxed iframe blocks it`);
+  const css = parseCss(src);
+  const animated = css.decls.some((d) => (d.prop === "animation" || d.prop === "animation-name") && !/^none\b/i.test(css.resolve(d.value).trim()));
+  if (!/@keyframes\s+[\w-]+/i.test(src) || !animated) F("lobby.html has no idle motion: declare @keyframes and an animation on something that runs continuously");
+
+  // Runtime, in jsdom at 1280x1080.
+  const errors = [], posts = [];
+  const vc = new VirtualConsole();
+  vc.on("jsdomError", (e) => {
+    const msg = String(e?.message ?? e);
+    if (/^Not implemented/.test(msg)) { W(`lobby: jsdom: ${msg.split("\n")[0]}`); return; }
+    errors.push(msg.split("\n")[0]);
+  });
+  const dom = new JSDOM(src, {
+    runScripts: "dangerously", pretendToBeVisual: true, virtualConsole: vc, url: "https://bundle.invalid/lobby.html",
+    beforeParse(w) {
+      for (const [k, v] of [["innerWidth", LOBBY_W], ["innerHeight", LOBBY_H], ["outerWidth", LOBBY_W], ["outerHeight", LOBBY_H]])
+        try { Object.defineProperty(w, k, { value: v, configurable: true }); } catch {}
+      w.postMessage = (msg) => { try { posts.push(JSON.parse(JSON.stringify(msg))); } catch { posts.push({ type: "(not JSON-serializable)" }); } };
+      w.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: (t, k) => (k in t ? t[k] : k === "measureText" ? () => ({ width: 8 }) : () => {}), set: (t, k, v) => ((t[k] = v), true) });
+      w.HTMLMediaElement.prototype.play = () => Promise.resolve();
+      w.addEventListener("unhandledrejection", (e) => errors.push("unhandled promise rejection: " + String(e?.reason?.stack ?? e?.reason).split("\n")[0]));
+    },
+  });
+  const w = dom.window, doc = w.document;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const post = (msg) => { try { w.dispatchEvent(new w.MessageEvent("message", { data: w.JSON.parse(JSON.stringify(msg)), origin: "null" })); } catch (e) { errors.push("dispatch threw: " + e.message); } };
+  const readyCount = () => posts.filter((p) => p?.type === "lobby_ready").length;
+
+  // Font size in vh: the winning font-size declaration (inline style, else the most specific matching rule,
+  // later wins ties), var() resolved, inherited from the parent when the element sets none.
+  const sized = css.rules.flatMap((r, order) => {
+    const d = r.body.split(";").map((x) => x.split(":")).find(([k]) => k?.trim().toLowerCase() === "font-size");
+    return d && r.sel !== "inline" ? r.sel.split(",").map((sel) => ({ sel: sel.trim(), value: d.slice(1).join(":").trim(), spec: specificity(sel), order })) : [];
+  });
+  const sizeCache = new Map();
+  const sizeVh = (el) => {
+    if (!el || el.nodeType !== 1) return 16 / (LOBBY_H / 100); // the browser default, 16px
+    if (sizeCache.has(el)) return sizeCache.get(el);
+    let value = el.style?.fontSize || null;
+    if (!value) {
+      let best = null;
+      for (const r of sized) { let hit = false; try { hit = el.matches(r.sel); } catch {} if (hit && (!best || r.spec > best.spec || (r.spec === best.spec && r.order >= best.order))) best = r; }
+      value = best?.value ?? null;
+    }
+    const parent = () => sizeVh(el.parentElement);
+    let out;
+    if (!value || /^(inherit|unset|revert)$/i.test(value.trim())) out = parent();
+    else { const v = css.resolve(value); out = /(em|%)\s*$/.test(v.trim()) ? toVh(v, parent()) : toVh(v, null); }
+    sizeCache.set(el, out);
+    return out;
+  };
+  const ownText = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("");
+  const norm = (s) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const statusText = () => { const el = doc.querySelector("[data-status]"); return el ? el.textContent.replace(/\s+/g, " ").trim() : null; };
+
+  await wait(30);
+  post(LOBBY_MSG);
+  for (let t = 0; t < 2000 && !readyCount(); t += 25) await wait(25);
+  await wait(150);
+  sizeCache.clear();
+  // Visible text only: text nodes outside script/style/template/title.
+  const textNodes = () => {
+    const out = [], tw = doc.createTreeWalker(doc.body ?? doc.documentElement, w.NodeFilter.SHOW_TEXT);
+    for (let n = tw.nextNode(); n; n = tw.nextNode()) if (n.textContent.trim() && !n.parentElement?.closest("script, style, template, noscript, title")) out.push(n);
+    return out;
+  };
+  const shown = () => textNodes().map((n) => n.textContent).join(" ");
+  const missingNames = (players) => players.map((p) => p.name).filter((x) => !shown().includes(x));
+  // The room code on its own (not just inside the join URL): an element whose visible text, spaces removed, is the code.
+  const codeHolders = () => [...doc.body?.querySelectorAll("*") ?? []].filter((e) => !e.closest("script, style, title") && e.textContent.replace(/\s+/g, "") === "DEMO"
+    && ![...e.children].some((c) => c.textContent.replace(/\s+/g, "") === "DEMO"));
+  const holders = codeHolders();
+  const missing = [...missingNames(LOBBY_PLAYERS), ...(holders.length ? [] : ["DEMO"]), ...(shown().includes("play.example") ? [] : ["play.example"])];
+  if (missing.length) F(`lobby: after the lobby message the card does not show ${missing.join(", ")} (every player's name, the code on its own and the join URL without its scheme)`);
+  const seatIds = new Set([...doc.querySelectorAll("[data-player]")].map((e) => e.getAttribute("data-player")).filter((id) => LOBBY_PLAYERS.some((p) => p.id === id)));
+  card.seats = seatIds.size;
+  if (seatIds.size < LOBBY_PLAYERS.length) F(`lobby: ${seatIds.size} of ${LOBBY_PLAYERS.length} players have a [data-player="<id>"] seat`);
+  card.slots = doc.querySelectorAll('[data-slot="empty"]').length;
+  const wantSlots = LOBBY_MSG.maxPlayers - LOBBY_PLAYERS.length;
+  if (card.slots < wantSlots) F(`lobby: ${card.slots} empty join slots for maxPlayers ${LOBBY_MSG.maxPlayers} and ${LOBBY_PLAYERS.length} players (want ${wantSlots} [data-slot="empty"])`);
+  // The room code's size: the largest text inside the element holding it (per-letter spans count).
+  for (const h of holders) for (const e of [h, ...h.querySelectorAll("*")]) {
+    if (!e.textContent.trim()) continue;
+    const v = sizeVh(e);
+    if (v !== null && (card.codeVh === null || v > card.codeVh)) card.codeVh = v;
+  }
+  if (card.codeVh === null && holders.length) {
+    const any = css.decls.filter((d) => d.prop === "font-size").map((d) => toVh(css.resolve(d.value), null)).filter((v) => v !== null);
+    if (!any.some((v) => v >= 14)) F("lobby: no font-size reaches 14vh: draw the room code at 14vh or more");
+  } else if (card.codeVh !== null && card.codeVh < 14) F(`lobby: the room code is drawn at ${+card.codeVh.toFixed(1)}vh; make it 14vh or more (legible from the couch)`);
+  // Title treatment: the name as art.
+  const name = norm(title);
+  if (!name) F("lobby: meta.title is missing, so the title treatment cannot be checked");
+  else {
+    for (const svg of doc.querySelectorAll("svg")) {
+      const labels = [svg.getAttribute("aria-label"), svg.querySelector("title")?.textContent, svg.textContent].map(norm);
+      if (labels.some((l) => l.includes(name)) && svg.querySelectorAll("path, text, tspan").length >= 3) { card.title = "svg"; break; }
+    }
+    if (card.title === "none") for (const e of doc.body?.querySelectorAll("*") ?? []) {
+      if (e.closest("svg") || !norm(ownText(e)).includes(name)) continue;
+      const v = sizeVh(e);
+      if (v !== null && v >= 12) { card.title = `text ${+v.toFixed(1)}vh`; break; }
+    }
+    if (card.title === "none") F(`lobby: no title treatment: draw "${title}" as art, an <svg> with <title> or aria-label naming it and 3+ letter paths/tspans, or layered type at 12vh or more (not a plain heading)`);
+  }
+  if (!readyCount()) F('lobby: never posted { type: "lobby_ready" } (post it once after the first paint)');
+  const s1 = statusText();
+  post(LOBBY_MSG2);
+  await wait(150);
+  const s2 = statusText();
+  card.status = `${JSON.stringify(s1)} → ${JSON.stringify(s2)}`;
+  if (s1 === null) F("lobby: no status line: mark it with data-status (\"Needs 2 more\" / \"Everyone in? Say start\", from ready)");
+  else if (s1 === s2) F(`lobby: the [data-status] line did not change when ready went from true to false (both ${JSON.stringify(s1)})`);
+  // A full room. jsdom does no layout (offsetTop is always 0), so overflow is not measured: the check is
+  // that all 16 names are shown and all 16 seats exist.
+  post(LOBBY_MSG3);
+  await wait(150);
+  const full = new Set([...doc.querySelectorAll("[data-player]")].map((e) => e.getAttribute("data-player")).filter((id) => FULL_ROOM.some((p) => p.id === id)));
+  card.full = full.size;
+  const missing16 = missingNames(FULL_ROOM);
+  if (missing16.length) F(`lobby: with 16 players (maxPlayers 16) the card does not show ${missing16.join(", ")}`);
+  if (full.size < FULL_ROOM.length) F(`lobby: with 16 players only ${full.size} have a [data-player] seat (draw up to 16, in two rows above 8)`);
+  await wait(50);
+  card.ready = readyCount();
+  if (card.ready > 1) W(`lobby: posted lobby_ready ${card.ready} times (once, after the first paint)`);
+  const others = [...new Set(posts.map((p) => p?.type).filter((t) => t !== "lobby_ready"))];
+  if (others.length) F(`lobby: posted ${others.map((t) => JSON.stringify(t ?? null)).join(", ")}: the card posts only lobby_ready (no say, no screen, no audio)`);
+  for (const e of [...new Set(errors)].slice(0, 6)) F(`lobby: uncaught error: ${e}`);
+  try { w.close(); } catch {}
+
+  // Look checks on the card (palette and seats live in meta and are checked on tv.html).
+  const lookSink = { fails: [], warns: [] };
+  const lk = analyzeLook(src, null, lookSink, "lobby.html");
+  return { lf, lw, card, look: lk, lookSink };
+}
+
 // ---------- run ----------
 const passes = [];
-if (html) log(`look: palette ${look.palette}, ${look.colours} non-grey colours, ${look.sizes.length} font sizes (${look.sizes.join(" ") || "none"}), max weight ${look.maxWeight}, emoji ${look.emoji}, ${look.seats} seat variants, hook ${look.hook ? "yes" : "missing"}`);
+// Kept apart from `failures` (like the look checks) so a lobby failure still lets the play-through run.
+let lobbyLook = "lobby: not checked";
+const lobbyFails = [], lobbyWarns = [];
+if (meta) {
+  if (!existsSync(lobbyPath)) {
+    const s = `lobby.html not found at ${lobbyPath}: write the lobby card (SKILL.md "Lobby card")`;
+    (LOBBY_MODE === "warn" ? lobbyWarns : lobbyFails).push(s);
+    lobbyLook = "lobby: missing";
+  } else {
+    const r = await runLobby(readFileSync(lobbyPath, "utf8"), meta.title);
+    lobbyFails.push(...r.lf, ...r.lookSink.fails.map((f) => `lobby look: ${f}`));
+    lobbyWarns.push(...r.lw, ...r.lookSink.warns.map((w) => `lobby look: ${w}`));
+    const reasons = [...r.lookSink.fails, ...r.lookSink.warns];
+    lobbyLook = `lobby: ${reasons.length ? reasons.join(" | ") : "ok"}`;
+    log(`lobby card: ${r.card.seats} seats, ${r.card.slots} join slots, full room ${r.card.full}/16, code ${r.card.codeVh === null ? "?" : +r.card.codeVh.toFixed(1)}vh, title ${r.card.title}, status ${r.card.status}, lobby_ready ${r.card.ready}; ${r.look.colours} non-grey colours, ${r.look.sizes.length} font sizes (${r.look.sizes.join(" ") || "none"}), max weight ${r.look.maxWeight}, emoji ${r.look.emoji}`);
+  }
+}
+if (html) log(`look: palette ${look.palette}, ${look.colours} non-grey colours, ${look.sizes.length} font sizes (${look.sizes.join(" ") || "none"}), max weight ${look.maxWeight}, emoji ${look.emoji}, ${look.seats} seat variants, hook ${look.hook ? "yes" : "missing"}; ${lobbyLook}`);
 if (!failures.length) {
   if (AI_MODE === "both" || AI_MODE === "ok") passes.push(await runPass(true));
   if (AI_MODE === "both" || AI_MODE === "fail") passes.push(await runPass(false));
@@ -636,6 +873,8 @@ for (const p of passes) {
 }
 for (const f of lookFails) failures.push(`look: ${f}`);
 for (const w of lookWarns) warn(`look: ${w}`);
+failures.push(...lobbyFails);
+for (const w of lobbyWarns) warn(w);
 for (const w of warnings) log(`warn: ${w}`);
 if (failures.length) {
   log("SMOKE FAIL");

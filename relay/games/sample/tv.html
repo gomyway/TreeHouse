@@ -28,8 +28,11 @@
   .big { font-size: var(--display); font-weight: 500; }
   .row { font-size: var(--body); display: flex; gap: 2vw; flex-wrap: wrap; justify-content: center; color: var(--muted); }
   /* Seats: thinking = outlined, answered = filled accent, out = 40% opacity, leader = ★ after the name. */
-  #seats { display: flex; flex-wrap: wrap; justify-content: center; gap: 1.5vh 2.5vw; padding: 0 4vw 3vh; font-size: var(--tiny); }
-  .seat { display: flex; flex-direction: column; align-items: center; gap: .6vh; min-width: 8vw; }
+  /* 16 seats fit across 1920 px: about 5.6vw each, names above 10 characters abbreviated. */
+  #seats { display: flex; flex-wrap: wrap; justify-content: center; gap: 1.5vh 0.6vw; padding: 0 2vw 3vh; font-size: var(--tiny); }
+  .seat { display: flex; flex-direction: column; align-items: center; gap: .6vh; width: 5.4vw; min-width: 0; }
+  .seat .nm { display: inline-block; vertical-align: bottom; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seat > div { max-width: 100%; }
   .seat svg { width: 7vh; height: 7vh; color: var(--muted); fill: none; stroke: currentColor; transition: color .3s; }
   .seat[data-state="answered"] svg { color: var(--accent); fill: currentColor; }
   .seat[data-state="out"] { opacity: .4; }
@@ -186,7 +189,7 @@ function drawSeats() {
       el.innerHTML = SEATS[seatOf.get(p.id)].svg + `<div><span class="nm"></span><span class="lead"> ★</span></div><div class="pts">0</div>`;
       seatEls.set(p.id, el); seatRow.append(el);
     }
-    el.querySelector(".nm").textContent = p.name;
+    el.querySelector(".nm").textContent = p.name.length > 10 ? p.name.slice(0, 9) + "…" : p.name; // 16 seats fit across 1920 px
     el.dataset.state = !p.connected ? "out" : (phase === "pick" || phase === "results") && picks.has(p.id) ? "answered" : "thinking";
     el.classList.toggle("leader", top > 0 && (scores.get(p.id) ?? 0) === top);
     countUp(el.querySelector(".pts"), scores.get(p.id) ?? 0);

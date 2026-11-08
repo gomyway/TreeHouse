@@ -10,7 +10,7 @@
     "final"
   ],
   "minPlayers": 1,
-  "maxPlayers": 12,
+  "maxPlayers": 16,
   "palette": "Broadcast",
   "seats": [
     {
@@ -54,6 +54,7 @@
       "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linejoin=\"round\" stroke-linecap=\"round\"><path d=\"M28 4L10 28h12l-4 16 20-26H26z\"/></svg>"
     }
   ],
+  "lobby": true,
   "createdAt": "2026-11-07T00:00:00.000Z",
   "prompt": "Hand-written sample bundle: three rounds of pick A or B, majority scores."
 }

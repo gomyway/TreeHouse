@@ -74,6 +74,10 @@ if (res.status !== 200 || !/^[a-z0-9]{8}$/.test(authored.id) || authored.meta?.i
   fail(`POST /author ${res.status} ${JSON.stringify(authored)}`);
 ok(`POST /author?wait=1 → id ${authored.id} and meta`);
 
+res = await get(`/games/${authored.id}/lobby.html`);
+if (authored.meta.lobby !== true || res.status !== 200 || !(await res.text()).includes("lobby_ready")) fail(`authored lobby ${authored.meta.lobby} ${res.status}`);
+ok("AUTHOR_FAKE stores the sample's lobby card too: meta.lobby true, GET /games/:id/lobby.html serves it");
+
 res = await get(`/games/${authored.id}/tv.html`);
 html = await res.text();
 if (res.status !== 200 || !res.headers.get("content-type")?.startsWith("text/html") || !html.includes("postMessage")) fail(`authored tv.html ${res.status}`);
@@ -180,15 +184,27 @@ st = await jobState(jobA);
 if (st.log?.length !== 2 || !st.log[1].endsWith("pi is writing tv.html")) fail(`log ${JSON.stringify(st.log)}`);
 ok("POST /author/:jobId/progress appends to the public log");
 
-const sample = { meta: await get("/games/sample/meta.json").then((r) => r.json()), html: await get("/games/sample/tv.html").then((r) => r.text()) };
+const sample = { meta: await get("/games/sample/meta.json").then((r) => r.json()), html: await get("/games/sample/tv.html").then((r) => r.text()),
+  lobby: await get("/games/sample/lobby.html").then((r) => r.text()) };
 const gid = "runner-" + Math.random().toString(36).slice(2, 8);
 res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid } });
 if (res.status !== 409) fail(`complete without a published bundle should 409, got ${res.status}`);
 ok("complete { id, meta } before the bundle is published → 409");
-res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid, title: "Runner game" }, html: sample.html, runner: "mac" });
+res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid }, html: sample.html, lobby: '<!doctype html><script src="https://x.example/a.js"></script>' });
+if (res.status !== 400 || !/script src/.test((await res.json()).error)) fail(`complete with an external-script lobby should 400, got ${res.status}`);
+res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid }, lobby: sample.lobby });
+if (res.status !== 400 || !/lobby needs html inline/.test((await res.json()).error)) fail(`complete with lobby but no html should 400, got ${res.status}`);
+res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid, maxPlayers: 17 }, html: sample.html });
+if (res.status !== 400 || !/maxPlayers/.test((await res.json()).error)) fail(`complete with maxPlayers 17 should 400, got ${res.status}`);
+ok("complete rejects a lobby that loads a script, a lobby without inline html, and maxPlayers 17 → 400 (the job stays running)");
+res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid, title: "Runner game", lobby: false }, html: sample.html, lobby: sample.lobby, runner: "mac" });
 if (res.status !== 200) fail(`complete inline ${res.status} ${await res.text()}`);
 st = await jobState(jobA);
-if (st.status !== "done" || st.id !== gid || st.meta?.id !== gid || st.meta.title !== "Runner game" || st.log?.length !== 2) fail(`done job ${JSON.stringify(st)}`);
+if (st.status !== "done" || st.id !== gid || st.meta?.id !== gid || st.meta.title !== "Runner game" || st.meta.lobby !== true || st.log?.length !== 2) fail(`done job ${JSON.stringify(st)}`);
+res = await get(`/games/${gid}/lobby.html`);
+if (res.status !== 200 || (await res.text()) !== sample.lobby) fail(`runner lobby.html ${res.status}`);
+if ((await get("/games").then((r) => r.json())).find((m) => m.id === gid)?.lobby !== true) fail("runner game not listed with lobby:true");
+ok("complete { id, meta, html, lobby } stores lobby.html: job meta.lobby true, listed lobby:true, GET /games/:id/lobby.html serves it");
 res = await get(`/games/${gid}/tv.html`);
 if (res.status !== 200 || !(await res.text()).includes("postMessage")) fail(`runner tv.html ${res.status}`);
 if ((await get("/games").then((r) => r.json()))[0]?.id !== gid) fail("runner game not listed first");

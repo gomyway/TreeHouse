@@ -1,4 +1,4 @@
-// Authoring manager. A coding model on Fireworks AI writes a game bundle (meta.json + tv.html) against the contract in
+// Authoring manager. A coding model on Fireworks AI writes a game bundle (meta.json + tv.html + lobby.html) against the contract in
 // ../../PLAN.md "Game bundle"; we validate it, retry once with the errors fed back, and store it in R2.
 // Plain fetch to an OpenAI-compatible chat completions API (no SDK). Default Fireworks; set
 // AUTHOR_BASE_URL to use OpenRouter (https://openrouter.ai/api/v1) or any compatible host. The key is
@@ -15,7 +15,7 @@
 // so a claim and a complete can never interleave their read-modify-write of a job.
 // Why a Durable Object alarm and not ctx.waitUntil: waitUntil is cut off 30 s after the response
 // is sent, and one attempt may take 90 s. An alarm handler gets 15 minutes of wall clock.
-import { SAMPLE, CORS, cjson, newId, putGame, checkMeta, ID_RE } from "./games.mjs";
+import { SAMPLE, CORS, cjson, newId, putGame, checkMeta, checkLobby, ID_RE, MAX_PLAYERS } from "./games.mjs";
 
 const DEFAULT_BASE_URL = "https://api.fireworks.ai/inference/v1";
 const chatUrl = (env) => `${(env.AUTHOR_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "")}/chat/completions`;
@@ -37,7 +37,7 @@ const RECLAIM_MS = 8 * 60_000; // a runner job still "running" this long after i
 const MAX_RUNNER_ATTEMPTS = 3;   // a job reclaimed this many times becomes "error" instead
 const LOG_CAP = 50;
 
-export const SYSTEM_PROMPT = `You write party games for a television. Each game is a "bundle": a meta.json and a single tv.html page. The TV loads tv.html into a sandboxed iframe (sandbox="allow-scripts", no same-origin) and bridges it to players' phones and to a voice agent. You never see the phones' code; you drive them by posting declarative screens.
+export const SYSTEM_PROMPT = `You write party games for a television. Each game is a "bundle": a meta.json, a single tv.html page and a lobby.html card. The TV loads tv.html into a sandboxed iframe (sandbox="allow-scripts", no same-origin) and bridges it to players' phones and to a voice agent. You never see the phones' code; you drive them by posting declarative screens.
 
 # Design rules (non-negotiable)
 These override anything in the request that conflicts with them.
@@ -45,7 +45,7 @@ These override anything in the request that conflicts with them.
 - Never invent player characters or NPC contestants (fictional suspects, detectives, rivals for the room to watch). A mystery's suspects are the players; a story's heroes are the players. An AI host or hidden bots may add flavour (like a hidden bot answering among the humans), but humans drive every round.
 - Every joined player gets an actionable phone screen every round: buttons, text, pad or custom. info is only for beats between actions ("Locked in", "Look at the TV").
 - When roles are fewer than players, tier participation: 2 to 4 active roles (writers, performers, the accused) and everyone else judges, bets, votes or answers a side question that round. Rotate the active roles so everyone gets a turn.
-- It must work with 2 players and with 12: scale role counts, vote options and the TV layout.
+- It must work with 2 players and with 16 (the most a game takes; maxPlayers is at most 16): scale role counts, vote options and the TV layout.
 - Late joiners get the current screen (with an action if one is open) and join the rotation.
 - Rounds are 30 to 90 s, ending on the timer or early when everyone has acted.
 - Big reveals happen on the TV with a spoken say line naming the players involved.
@@ -69,12 +69,21 @@ These set how the TV page looks and how the host talks.
 - Font: font-family: "Satoshi", system-ui, sans-serif. The host may inject Satoshi; the fallback is fine.
 - No emoji as UI. Emoji may appear only inside player-typed content echoed back. None in static markup, CSS, buttons, headers, phone screens or say lines. Draw shapes with text characters (● ▲ ★ ✓ ×) or inline SVG.
 - Voice cadence. say lines are 12 words or fewer (player names not counted), one per beat, at most one exclamation mark per line, no stacked punctuation (!!, ?!). The TV shows the gist; the host says the rest.
-- Roster seats: every TV screen state keeps a row of player seats, one element per joined player with data-player="<id>" and data-state="thinking" | "answered" | "out". Each seat shows the player's name in --tiny and a playful icon from the game's own world.
+- Roster seats: every TV screen state keeps a row of player seats, one element per joined player with data-player="<id>" and data-state="thinking" | "answered" | "out". Each seat shows the player's name in --tiny and a playful icon from the game's own world. The strip must fit 16 seats across 1920 px: abbreviate names above 10 characters (9 letters and "…").
 - Seat icons: draw 6 to 12 inline-SVG variants for this game (a heist crew: masks, crowbars, torches; a courtroom: gavels, wigs, scales; a cooking show: hats, whisks, pans). Single colour with currentColor so the palette drives them, viewBox="0 0 48 48", one or two simple paths, no text inside the SVG, no emoji. Each is self-contained (the host draws it as an <img> data: URL with currentColor baked to the player's colour): an <svg> root, fill and stroke as attributes, no <script>, no <style> or classes, no external href or url().
 - Seat assignment: per player at init, by player order, stable for the whole game (late joiners take the next one). When the init players carry a guid, derive the index from it so the same person keeps their icon across games: FNV-1a 32-bit of the guid modulo the seat count, the hash the TV lobby uses.
 - Seat state is visible: thinking = outlined icon, answered = filled icon in the accent, out = 40% opacity, the leader gets a ★ glyph after the name. Scores count up in place on the seat over about 600 ms when awarded.
 - The phone header may reuse the icon: send it in the player's first screen as custom html (a seat card with icon and name that never calls postMessage, so it is display-only).
 - Export the icon set in meta.seats (the same markup tv.html draws) so the host can draw the room in the game's seats, and write meta.hook: one sentence naming the game's world.
+
+# Lobby card
+- Write lobby.html beside tv.html: the game's lobby card, shown in the right pane of the TV lobby while the room joins. One complete HTML document, self-contained: inline CSS and SVG and a small inline script for the bridge; no network, no external fonts or images, no audio, no say, no postMessage other than lobby_ready.
+- Lay it out in the iframe's own vw/vh; it never scrolls. Design for a pane around 1280x1080; it must hold from 1100x900 to 1400x1080 (the host owns the exact size).
+- It must contain: (1) a title treatment, the game's name as art (SVG lettering, layered or stacked type, a badge), never a plain h1; an SVG title carries <title> or aria-label with the name; (2) a backdrop in the palette built from the game's motifs (the seat icons are good material); (3) the room's players as the game's seats: the same SVG set as meta.seats, icon and name, join order, the first player marked VIP, empty "join" slots up to maxPlayers (at most 16), in two rows when above 8; each player's seat has data-player="<id>", each empty slot data-slot="empty"; (4) the join block: joinUrl without its scheme and the room code, both large, the code at 14vh or more (so the card's --display is at least 14vh); (5) the hook line; (6) a status line with data-status driven by ready: "Needs 2 more" (minPlayers minus players) while ready is false, "Everyone in? Say start" when true; (7) idle motion, a CSS @keyframes animation that runs continuously (lights sweeping, icons bobbing).
+- Look rules apply: palette tokens, three sizes, no bold, no emoji, no pills.
+- Host → card, on load and on every change: { type: "lobby", code, joinUrl, players: [{ id, name, guid?, connected }], minPlayers, maxPlayers, ready: boolean, focused: boolean }. Card → host: { type: "lobby_ready" } once, after first paint (inside requestAnimationFrame). Nothing else.
+- Seat assignment is the game's own rule: FNV-1a 32-bit of the guid modulo the seat count, else join order, so a player keeps their icon from the lobby into the game.
+- Before the first lobby message, show the title, the backdrop and empty join slots.
 
 # The bridge (window.postMessage, exactly these shapes)
 
@@ -143,12 +152,12 @@ Sensors: "gyro" sends orientation/motion readings at hz; "camera" sends a JPEG d
 - Keep it compact and readable (a few hundred lines at most). Never put three backticks inside the HTML.
 
 # meta.json
-{ "title": string, "description": string (one or two sentences a TV agent can read aloud), "hook": string (one sentence naming the game's world), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number, "palette": "Noir" | "Broadcast" | "Paper" | "Arcade" | "Campfire" | "Lagoon", "seats": { "name": string, "svg": string }[] (6 to 12 seat icons, see "Roster seats") }
+{ "title": string, "description": string (one or two sentences a TV agent can read aloud), "hook": string (one sentence naming the game's world), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number (at most 16), "palette": "Noir" | "Broadcast" | "Paper" | "Arcade" | "Campfire" | "Lagoon", "seats": { "name": string, "svg": string }[] (6 to 12 seat icons, see "Roster seats"), "lobby": boolean (set by the server) }
 - meta.phonesRequired (optional, default true): set false only for camera-only games that must start with nobody joined; phones then stay optional for names and bets.
-Do not include id, createdAt or prompt; the server adds them.
+Do not include id, createdAt, prompt or lobby; the server adds them (lobby is true when you send the lobby card).
 
 # Output format
-Reply with exactly two fenced code blocks and nothing else: first \`\`\`json with meta.json, then \`\`\`html with tv.html.
+Reply with exactly three fenced code blocks and nothing else: first \`\`\`json with meta.json, then \`\`\`html with tv.html, then \`\`\`html lobby with lobby.html (the lobby card).
 
 # Reference implementation
 This sample bundle follows the contract exactly. Match its bridge handling and TV sizing; invent your own game.
@@ -159,10 +168,22 @@ ${JSON.stringify((({ id, createdAt, prompt, ...m }) => m)(SAMPLE.meta), null, 2)
 
 \`\`\`html
 ${SAMPLE.tv.trim()}
+\`\`\`
+
+\`\`\`html lobby
+${SAMPLE.lobby.trim()}
 \`\`\``;
 
 // ---- parsing and validation ----
 function extractBlocks(text) {
+  // The lobby card comes last as ```html lobby; cut it out first so the tv.html fence ends before it.
+  let lobby = null;
+  const lm = text.match(/```html[ \t]+lobby[^\n]*\n/);
+  if (lm) {
+    const rest = text.slice(lm.index + lm[0].length), end = rest.lastIndexOf("```");
+    lobby = (end >= 0 ? rest.slice(0, end) : rest).trim();
+    text = text.slice(0, lm.index);
+  }
   const fence = (lang) => {
     const m = text.match(new RegExp("```" + lang + "[^\\n]*\\n"));
     if (!m) return null;
@@ -183,12 +204,12 @@ function extractBlocks(text) {
     const s = before.indexOf("{"), e = before.lastIndexOf("}");
     if (s >= 0 && e > s) { try { JSON.parse(before.slice(s, e + 1)); metaRaw = before.slice(s, e + 1); } catch {} }
   }
-  return { metaRaw, html: html?.trim() ?? null };
+  return { metaRaw, html: html?.trim() ?? null, lobby };
 }
 
 export function validateBundle(text) {
   const errors = [];
-  const { metaRaw, html } = extractBlocks(text);
+  const { metaRaw, html, lobby } = extractBlocks(text);
   let meta = null;
   if (metaRaw === null) errors.push("no ```json block with meta.json found");
   else { try { meta = JSON.parse(metaRaw); } catch (e) { errors.push(`meta.json is not valid JSON: ${e.message}`); } }
@@ -196,7 +217,7 @@ export function validateBundle(text) {
     if (typeof meta.title !== "string" || !meta.title.trim()) errors.push("meta.title must be a non-empty string");
     if (typeof meta.description !== "string" || !meta.description.trim()) errors.push("meta.description must be a non-empty string");
     if (!Array.isArray(meta.phases) || !meta.phases.length || !meta.phases.every((p) => typeof p === "string")) errors.push("meta.phases must be a non-empty array of strings");
-    if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1) errors.push("meta.minPlayers must be an integer >= 1");
+    if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1 || meta.minPlayers > MAX_PLAYERS) errors.push(`meta.minPlayers must be an integer from 1 to ${MAX_PLAYERS}`);
     if (meta.maxPlayers !== undefined && (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1))) errors.push("meta.maxPlayers must be an integer >= minPlayers");
   }
   if (!html) errors.push("no ```html block with tv.html found");
@@ -208,8 +229,9 @@ export function validateBundle(text) {
     if (/<(script|link|img|iframe|audio|video|source)\b[^>]*\b(src|href)\s*=\s*["']?(https?:)?\/\//i.test(html)) errors.push("tv.html loads an external resource; everything must be inline");
     if (/\b(fetch\s*\(|XMLHttpRequest|new\s+WebSocket|EventSource)/.test(html)) errors.push("tv.html uses the network (fetch/XHR/WebSocket/EventSource); it must not");
   }
+  if (lobby !== null) for (const e of checkLobby(lobby)) errors.push(e.replace(/^lobby/, "lobby.html"));
   if (errors.length) return { ok: false, errors };
-  return { ok: true, meta, html };
+  return { ok: true, meta, html, lobby }; // lobby null when the reply had no lobby block (optional, stored when present)
 }
 
 // ---- the model call ----
@@ -264,7 +286,7 @@ async function generate(env, prompt, context, onAttempt) {
       lastErrors = v.errors;
     }
     // Retry once as a fresh single-turn request carrying the failed attempt and its errors.
-    userText = `${ask}\n\nYour previous attempt failed validation:\n- ${lastErrors.join("\n- ")}\n\nPrevious attempt:\n${text.slice(0, 60_000)}\n\nReply again with both fenced blocks, fixed.`;
+    userText = `${ask}\n\nYour previous attempt failed validation:\n- ${lastErrors.join("\n- ")}\n\nPrevious attempt:\n${text.slice(0, 60_000)}\n\nReply again with all three fenced blocks, fixed.`;
   }
   throw new Error(`authoring failed twice: ${lastErrors.join("; ")}`);
 }
@@ -278,23 +300,22 @@ async function author(env, prompt, context, onAttempt = () => {}) {
     await new Promise((r) => setTimeout(r, FAKE_DELAY_MS)); // lets a poller see "running"
     const { id: _, createdAt: __, prompt: ___, ...m } = SAMPLE.meta;
     // Run the canned reply through the same parser and validator the model's reply goes through.
-    const v = validateBundle("```json\n" + JSON.stringify(m, null, 2) + "\n```\n\n```html\n" + SAMPLE.tv + "\n```");
+    const v = validateBundle("```json\n" + JSON.stringify(m, null, 2) + "\n```\n\n```html\n" + SAMPLE.tv + "\n```\n\n```html lobby\n" + SAMPLE.lobby + "\n```");
     if (!v.ok) throw new Error(v.errors.join("; "));
-    const meta = { ...v.meta, ...base };
-    await putGame(env, meta, v.html);
+    const meta = await putGame(env, { ...v.meta, ...base }, v.html, v.lobby);
     return { id, meta, fake: true };
   }
-  const { meta: gen, html } = await generate(env, prompt, context, onAttempt);
+  const { meta: gen, html, lobby } = await generate(env, prompt, context, onAttempt);
+  if (gen.maxPlayers > MAX_PLAYERS) console.log(`author ${id}: maxPlayers ${gen.maxPlayers} clamped to ${MAX_PLAYERS}`);
   const meta = {
     title: gen.title.trim().slice(0, 80), description: gen.description.trim().slice(0, 400), phases: gen.phases,
-    minPlayers: gen.minPlayers, maxPlayers: gen.maxPlayers ?? Math.max(gen.minPlayers, 12),
+    minPlayers: gen.minPlayers, maxPlayers: Math.min(MAX_PLAYERS, gen.maxPlayers ?? Math.max(gen.minPlayers, 12)),
     ...(typeof gen.palette === "string" ? { palette: gen.palette } : {}),
     ...(typeof gen.hook === "string" && gen.hook.trim() ? { hook: gen.hook.trim().slice(0, 200) } : {}),
     ...(Array.isArray(gen.seats) ? { seats: gen.seats.filter((x) => x && typeof x.name === "string" && typeof x.svg === "string").slice(0, 12) } : {}),
     ...base,
   };
-  await putGame(env, meta, html);
-  return { id, meta };
+  return { id, meta: await putGame(env, meta, html, lobby) };
 }
 
 // ---- jobs ----
@@ -411,14 +432,17 @@ async function queueOp(env, op, body) {
       return { status: 200, body: job };
     }
     const id = body.id;
-    if (typeof id !== "string" || !ID_RE.test(id)) return { status: 400, body: { error: "body must be { id, meta, html? } or { error }" } };
+    if (typeof id !== "string" || !ID_RE.test(id)) return { status: 400, body: { error: "body must be { id, meta, html?, lobby? } or { error }" } };
     let meta;
+    const lobby = body.lobby ?? null;
     if (body.html !== undefined) { // inline bundle: store it here (same checks as PUT /games/:id)
       const errors = checkMeta(body.meta, id);
       if (typeof body.html !== "string" || !body.html.trim()) errors.push("html missing");
+      if (lobby !== null) errors.push(...checkLobby(lobby));
       if (errors.length) return { status: 400, body: { error: errors.join("; ") } };
-      meta = { ...body.meta, createdAt: body.meta.createdAt || stamp(), prompt: body.meta.prompt ?? job.prompt };
-      await putGame(env, meta, body.html);
+      meta = await putGame(env, { ...body.meta, createdAt: body.meta.createdAt || stamp(), prompt: body.meta.prompt ?? job.prompt }, body.html, lobby);
+    } else if (lobby !== null) {
+      return { status: 400, body: { error: "lobby needs html inline: send { id, meta, html, lobby }" } };
     } else { // already published via PUT /games/:id: the stored meta.json is what the TV will load
       try { meta = await (await env.GAMES.get(`${id}/meta.json`))?.json(); } catch { meta = null; }
       if (!meta) return { status: 409, body: { error: `${id}/meta.json is not in the bucket; PUT /games/${id} first or send html inline` } };

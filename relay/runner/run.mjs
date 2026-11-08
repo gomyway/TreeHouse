@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Authoring runner (Mac side). Claims authoring jobs from the relay Worker, runs the `pi` coding
-// agent inside the little-redwood-author Docker image to write and test a game bundle, re-runs the
-// smoke harness on the host as the gate, and completes the job (which publishes the bundle).
+// agent inside the little-redwood-author Docker image to write and test a game bundle (meta.json,
+// tv.html and the lobby card lobby.html), re-runs the smoke harness on the host as the gate, and
+// completes the job with { id, meta, html, lobby? } (which publishes the bundle).
 //
 //   node runner/run.mjs                  loop forever: claim, author, complete
 //   node runner/run.mjs --once           one job, then exit
@@ -112,18 +113,25 @@ function ensureImage() {
 }
 
 // ---------- one job ----------
+// A reference bundle from the deployed relay, else from ../games/<id>. lobby is null when the bundle has
+// no lobby card in either place (a relay that predates /games/:id/lobby.html falls back to the local file).
 async function getReference(id) {
+  const d = join(RELAY_DIR, "games", id);
+  const localLobby = () => { try { return readFileSync(join(d, "lobby.html"), "utf8"); } catch { return null; } };
+  const fetchText = async (f) => {
+    const r = await fetch(`${RELAY}/games/${id}/${f}`, { signal: AbortSignal.timeout(10_000) });
+    if (!r.ok) throw new Error(`${f} ${r.status}`);
+    return r.text();
+  };
   try {
-    const [tv, meta] = await Promise.all(["tv.html", "meta.json"].map(async (f) => {
-      const r = await fetch(`${RELAY}/games/${id}/${f}`, { signal: AbortSignal.timeout(10_000) });
-      if (!r.ok) throw new Error(`${f} ${r.status}`);
-      return r.text();
-    }));
+    const [tv, meta] = await Promise.all(["tv.html", "meta.json"].map(fetchText));
     JSON.parse(meta);
-    return { tv, meta, from: "relay" };
+    let lobby = null, lobbyFrom = "none";
+    try { lobby = await fetchText("lobby.html"); lobbyFrom = "relay"; } catch { lobby = localLobby(); if (lobby !== null) lobbyFrom = "local"; }
+    return { tv, meta, lobby, from: "relay", lobbyFrom };
   } catch {
-    const d = join(RELAY_DIR, "games", id);
-    return { tv: readFileSync(join(d, "tv.html"), "utf8"), meta: readFileSync(join(d, "meta.json"), "utf8"), from: "local" };
+    const lobby = localLobby();
+    return { tv: readFileSync(join(d, "tv.html"), "utf8"), meta: readFileSync(join(d, "meta.json"), "utf8"), lobby, from: "local", lobbyFrom: lobby !== null ? "local" : "none" };
   }
 }
 
@@ -142,11 +150,12 @@ async function prepareJobDir(job, log) {
   const sample = await getReference("sample");
   writeFileSync(join(dir, "reference", "sample.html"), sample.tv);
   writeFileSync(join(dir, "reference", "sample.meta.json"), sample.meta);
+  if (sample.lobby !== null) writeFileSync(join(dir, "reference", "sample.lobby.html"), sample.lobby);
   try {
     const wtb = await getReference("whos-the-bot");
     writeFileSync(join(dir, "reference", "whos-the-bot.html"), wtb.tv);
   } catch {}
-  log(`reference bundles from ${sample.from}`);
+  log(`reference bundles from ${sample.from} (sample lobby card from ${sample.lobbyFrom})`);
   if (!existsSync(join(dir, "meta.json"))) writeFileSync(join(dir, "meta.json"), JSON.stringify({
     id: "my-game", title: "", description: "", phases: [], minPlayers: 1, maxPlayers: 8,
   }, null, 2) + "\n");
@@ -155,16 +164,16 @@ async function prepareJobDir(job, log) {
   const memory = await roomMemorySection(RELAY, job.context).catch(() => "");
   if (memory) log("room memory block added to TASK.md");
   job.memoryInjected = hasHistory(memory); // drives the game's scope (scope.mjs)
-  writeFileSync(join(dir, "TASK.md"), `# Game request\n\n${job.prompt}\n${ctx}${memory ? `\n${memory}` : ""}\n## Deliverable\n\nWrite \`meta.json\` and \`tv.html\` in this directory following \`skill/SKILL.md\` and \`skill/CONTRACT.md\`.\nDone means \`node harness/smoke.mjs\` prints SMOKE PASS and the game is fun on a TV.\n`);
+  writeFileSync(join(dir, "TASK.md"), `# Game request\n\n${job.prompt}\n${ctx}${memory ? `\n${memory}` : ""}\n## Deliverable\n\nWrite \`meta.json\`, \`tv.html\` and the lobby card \`lobby.html\` in this directory following \`skill/SKILL.md\` and \`skill/CONTRACT.md\`.\nDone means \`node harness/smoke.mjs\` prints SMOKE PASS and the game is fun on a TV.\n`);
   return dir;
 }
 
 function runAgent(dir, log, onTick) {
   return new Promise((resolveRun) => {
     const name = `lr-author-${dir.split("/").pop().replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 40)}-${Date.now() % 100000}`;
-  const task = "You are building a party game bundle in /job for the people in the room. Read /job/TASK.md, then /job/skill/SKILL.md (its Design rules are non-negotiable), /job/skill/CONTRACT.md and /job/reference/sample.html; read /job/reference/whos-the-bot.html for how to tier roles only: it predates the look and voice rules, so never copy its styling, weights, emoji or long say lines; /job/reference/sample.html is the look reference. " +
+  const task = "You are building a party game bundle in /job for the people in the room. Read /job/TASK.md, then /job/skill/SKILL.md (its Design rules are non-negotiable), /job/skill/CONTRACT.md, /job/reference/sample.html and /job/reference/sample.lobby.html; read /job/reference/whos-the-bot.html for how to tier roles only: it predates the look and voice rules, so never copy its styling, weights, emoji or long say lines; /job/reference/sample.html is the look reference. " +
     "Build the game TASK.md asks for, with every feature it names, cast with the joined players: their real names, an actionable phone screen for every player every round, rotating active roles with everyone else judging/betting/voting, no invented player characters or NPC contestants. The sample shows the bridge and TV sizing only, do not reskin it. " +
-    "Write /job/meta.json and /job/tv.html (write tv.html whole in one go, then edit). Run `node harness/smoke.mjs` from /job and fix every failure until it prints SMOKE PASS. " +
+    "Write /job/meta.json and /job/tv.html (write tv.html whole in one go, then edit), then the lobby card /job/lobby.html (SKILL.md \"Lobby card\": the game's name as art, a backdrop from its motifs, the room as its seats, the join URL and code, the hook, a ready status line, idle motion). Run `node harness/smoke.mjs` from /job and fix every failure until it prints SMOKE PASS. " +
     "Then re-read TASK.md and the design rules, check each is met in tv.html, add what is missing, and improve the fun (clear hook, say lines, reveal naming players, winner), re-running the harness after each change. Finish only when it passes.";
     const args = ["run", "--rm", "--name", name,
       "--memory", "2g", "--cpus", "2",
@@ -197,6 +206,19 @@ function gate(dir) {
   const r = spawnSync(process.execPath, [join(HERE, "harness", "smoke.mjs"), dir], { encoding: "utf8", timeout: 120_000 });
   const out = (r.stdout ?? "") + (r.stderr ?? "");
   return { pass: r.status === 0 && /SMOKE PASS/.test(out), out };
+}
+
+// A game takes at most 16 players (checkMeta in src/games.mjs): an agent-written maxPlayers above that is
+// clamped and logged rather than failing the job.
+const MAX_PLAYERS = 16;
+function clampMaxPlayers(dir, log) {
+  const p = join(dir, "meta.json");
+  let meta;
+  try { meta = JSON.parse(readFileSync(p, "utf8")); } catch { return; } // the gate reports a broken meta.json
+  if (!(Number(meta?.maxPlayers) > MAX_PLAYERS)) return;
+  log(`meta.maxPlayers ${meta.maxPlayers} clamped to ${MAX_PLAYERS}`);
+  meta.maxPlayers = MAX_PLAYERS;
+  writeFileSync(p, JSON.stringify(meta, null, 2) + "\n");
 }
 
 const current = { jobId: null, kill: null };
@@ -238,6 +260,7 @@ async function runJob(job) {
     if (DRY) {
       await progress("dry run: using the sample bundle instead of the agent");
       cpSync(join(dir, "reference", "sample.html"), join(dir, "tv.html"));
+      if (existsSync(join(dir, "reference", "sample.lobby.html"))) cpSync(join(dir, "reference", "sample.lobby.html"), join(dir, "lobby.html"));
       const m = JSON.parse(readFileSync(join(dir, "reference", "sample.meta.json"), "utf8"));
       writeFileSync(join(dir, "meta.json"), JSON.stringify({ ...m, title: `${m.title} (dry run)` }, null, 2));
     } else {
@@ -252,6 +275,7 @@ async function runJob(job) {
         : `agent finished in ${run.seconds} s (exit ${run.code}, ${t.tools} tool calls${t.error ? `, model error: ${t.error.slice(0, 160)}` : ""})`);
     }
 
+    clampMaxPlayers(dir, log); // before the gate, so the harness checks what gets published
     const g = gate(dir);
     writeFileSync(join(dir, "harness-result.txt"), g.out);
     const lastLines = g.out.trim().split("\n").slice(-12).join("\n");
@@ -265,8 +289,11 @@ async function runJob(job) {
 
     const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8"));
     const html = readFileSync(join(dir, "tv.html"), "utf8");
+    const lobbyPath = join(dir, "lobby.html");
+    const lobby = existsSync(lobbyPath) ? readFileSync(lobbyPath, "utf8") : null;
     const id = slugify(meta.title);
     meta.id = id;
+    meta.lobby = lobby !== null; // the runner sets it; the relay stores lobby.html beside tv.html
     delete meta.createdAt;
     delete meta.prompt; // the relay fills in the job prompt
     if (LOCAL) {
@@ -279,7 +306,7 @@ async function runJob(job) {
     if (sc.note) log(`scope: ${sc.note}`);
     log(`scope ${sc.scope}${sc.scope === "tv" ? ` (tvId ${sc.tvId}, crew ${sc.crew.length}; tvId sent: ${typeof job.context?.tvId === "string"}, memory history: ${!!job.memoryInjected})` : ""}`);
     await progress(`publishing ${id} (scope ${sc.scope}${sc.scope === "tv" ? `, crew ${sc.crew.length}` : ""})`);
-    const ok = await complete({ id, meta, html });
+    const ok = await complete({ id, meta, html, ...(lobby !== null ? { lobby } : {}) });
     log(`${ok ? "published" : "publish FAILED"} ${id} in ${Math.round((Date.now() - t0) / 1000)} s`);
     return { ok, dir, id };
   } catch (e) {

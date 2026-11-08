@@ -1,5 +1,5 @@
-// Publish every pre-built bundle in ../games (a directory holding meta.json and tv.html) to the
-// game bucket, so GET /games lists it next to authored games.
+// Publish every pre-built bundle in ../games (a directory holding meta.json and tv.html, plus lobby.html
+// when the game ships a lobby card) to the game bucket, so GET /games lists it next to authored games.
 //
 //   node scripts/publish-games.mjs                 # real bucket (wrangler r2 object put --remote)
 //   node scripts/publish-games.mjs --local         # wrangler's local simulation (.wrangler/state)
@@ -8,7 +8,8 @@
 //   node scripts/publish-games.mjs whos-the-bot    # only the named bundles
 //
 // meta.json is validated (id = directory name; title, description, phases, minPlayers present);
-// createdAt is set from the file's mtime when missing; other fields are kept as written.
+// createdAt is set from the file's mtime when missing; meta.lobby is set from whether lobby.html exists;
+// other fields are kept as written. The smoke harness is not run here.
 // Hand-built bundles are global (PLAN.md "Game scope"): a meta declaring scope "tv" is refused.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -20,6 +21,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gamesDir = path.join(root, "games");
 const wrangler = path.join(root, "node_modules/.bin/wrangler");
 const BUCKET = "little-redwood-games";
+const MAX_PLAYERS = 16; // same as src/games.mjs; a hand-built maxPlayers above it is clamped (and logged), not refused
 
 const args = process.argv.slice(2);
 const opt = { local: false, persistTo: null, url: null, only: [] };
@@ -40,6 +42,7 @@ function checkMeta(meta, id) { // same rules as checkMeta in src/games.mjs
   for (const k of ["title", "description"]) if (typeof meta[k] !== "string" || !meta[k].trim()) e.push(`${k} missing`);
   if (!Array.isArray(meta.phases) || !meta.phases.length) e.push("phases missing");
   if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1) e.push("minPlayers missing");
+  if (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < meta.minPlayers) e.push(`maxPlayers must be an integer >= minPlayers (and <= ${MAX_PLAYERS})`);
   if (meta.scope === "tv") e.push(`scope "tv" is for authored games seeded with Room memory; hand-built bundles are global (remove scope/tvId/crew from games/${id}/meta.json)`);
   else if (meta.scope !== undefined && meta.scope !== "global") e.push(`scope ${JSON.stringify(meta.scope)} must be "global" (or absent)`);
   return e;
@@ -63,28 +66,33 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "publish-games-"));
 let published = 0, failed = 0;
 try {
   for (const id of dirs) {
-    const metaPath = path.join(gamesDir, id, "meta.json"), tvPath = path.join(gamesDir, id, "tv.html");
+    const metaPath = path.join(gamesDir, id, "meta.json"), tvPath = path.join(gamesDir, id, "tv.html"), lobbyPath = path.join(gamesDir, id, "lobby.html");
     try {
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
       const errors = checkMeta(meta, id);
       if (errors.length) throw new Error(errors.join("; "));
       if (!meta.createdAt) meta.createdAt = fs.statSync(metaPath).mtime.toISOString();
+      if (meta.maxPlayers > MAX_PLAYERS) { console.log(`${id}: maxPlayers ${meta.maxPlayers} clamped to ${MAX_PLAYERS}`); meta.maxPlayers = MAX_PLAYERS; }
       const html = fs.readFileSync(tvPath, "utf8");
       if (!html.trim()) throw new Error("tv.html is empty");
+      const lobby = fs.existsSync(lobbyPath) ? fs.readFileSync(lobbyPath, "utf8") : null;
+      if (lobby !== null && !lobby.trim()) throw new Error("lobby.html is empty");
+      meta.lobby = lobby !== null;
       if (opt.url) {
         const res = await fetch(`${opt.url}/games/${id}`, {
           method: "PUT", headers: { "content-type": "application/json", "x-publish-token": process.env.PUBLISH_TOKEN },
-          body: JSON.stringify({ meta, html }),
+          body: JSON.stringify({ meta, html, ...(lobby !== null ? { lobby } : {}) }),
         });
         if (!res.ok) throw new Error(`PUT /games/${id} ${res.status} ${await res.text()}`);
       } else {
         const out = path.join(tmp, `${id}.meta.json`);
         fs.writeFileSync(out, JSON.stringify(meta));
-        put(`${id}/tv.html`, tvPath, "text/html; charset=utf-8"); // tv.html first: a listed meta always has its html
+        put(`${id}/tv.html`, tvPath, "text/html; charset=utf-8"); // tv.html (and lobby.html) first: a listed meta always has its html
+        if (lobby !== null) put(`${id}/lobby.html`, lobbyPath, "text/html; charset=utf-8");
         put(`${id}/meta.json`, out, "application/json");
       }
       published++;
-      console.log(`published ${id}  "${meta.title}"  createdAt ${meta.createdAt}`);
+      console.log(`published ${id}  "${meta.title}"  createdAt ${meta.createdAt}  lobby ${meta.lobby ? "yes" : "no"}`);
     } catch (err) {
       failed++;
       console.error(`FAILED ${id}: ${err.message}`);

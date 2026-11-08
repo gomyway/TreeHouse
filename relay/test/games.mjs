@@ -43,14 +43,20 @@ const put = (id, body, token = TOKEN) => get(`/games/${id}`, {
 
 let list = await ids();
 if (!same(list, ["sample"])) fail(`empty bucket lists ${list}`); ok("empty bucket: GET /games lists only the compiled-in sample");
+const sampleLobby = fs.readFileSync(path.join(relayDir, "games/sample/lobby.html"), "utf8");
+let entry = (await get("/games").then((r) => r.json()))[0];
+let res = await get("/games/sample/lobby.html");
+if (entry.lobby !== true || res.status !== 200 || !res.headers.get("content-security-policy") || (await res.text()) !== sampleLobby) fail(`compiled-in sample lobby ${entry.lobby} ${res.status}`);
+ok("empty bucket: the compiled-in sample lists lobby:true and serves /games/sample/lobby.html");
 
-let res = await get("/author?wait=1", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "authored one" }) });
+res = await get("/author?wait=1", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "authored one" }) });
 const authored = await res.json();
 if (res.status !== 200 || !authored.id) fail(`POST /author ${res.status} ${JSON.stringify(authored)}`);
 list = await ids();
 if (!same(list, [authored.id, "sample"])) fail(`after author: ${list}`); ok("authored bundle is listed before the sample");
 
 const html = "<!doctype html><title>prebuilt</title><script>parent.postMessage({type:'done'},'*')</script>";
+const lobbyHtml = "<!doctype html><title>card</title><style>@keyframes s{to{opacity:.5}} p{animation:s 2s infinite}</style><p>card</p><script>parent.postMessage({type:'lobby_ready'},'*')</script>";
 const meta = (id, extra = {}) => ({ id, title: `Pre-built ${id}`, description: "test bundle", phases: ["one"], minPlayers: 2, maxPlayers: 6, ...extra });
 
 if ((await put("prebuilt-old", { meta: meta("prebuilt-old"), html }, null)).status !== 403) fail("PUT without token should 403");
@@ -115,7 +121,7 @@ await bad({ scope: "tv", tvId: "tv-test-1", crew: "guid-a-0001" }, "crew not an 
 await bad({ scope: "tv", tvId: "tv-test-1", crew: ["no"] }, "a crew entry that is not a guid");
 ok('checkMeta rejects scope "household", a bad tvId, and a bad crew → 400');
 
-res = await put("scoped-tv", { meta: meta("scoped-tv", { scope: "tv", tvId: "tv-test-1", crew: ["guid-a-0001"] }), html });
+res = await put("scoped-tv", { meta: meta("scoped-tv", { scope: "tv", tvId: "tv-test-1", crew: ["guid-a-0001"] }), html, lobby: lobbyHtml });
 if (res.status !== 200) fail(`PUT scoped-tv ${res.status} ${await res.text()}`);
 res = await put("scoped-global", { meta: meta("scoped-global", { scope: "global" }), html });
 if (res.status !== 200) fail(`PUT scoped-global ${res.status} ${await res.text()}`);
@@ -131,14 +137,15 @@ list = await idsFor("?tv=tv-other");
 if (!same(list, ["scoped-global", ...before])) fail(`GET /games?tv=tv-other: ${list}`);
 ok("GET /games?tv=<another tv> omits it");
 
-for (const f of ["tv.html", "meta.json"]) {
+for (const f of ["tv.html", "meta.json", "lobby.html"]) {
   const st = async (q) => (await get(`/games/scoped-tv/${f}${q}`)).status;
   const [none, mine, other] = [await st(""), await st("?tv=tv-test-1"), await st("?tv=tv-other")];
   if (none !== 404 || mine !== 200 || other !== 404) fail(`${f}: no tv ${none}, right tv ${mine}, other tv ${other}`);
 }
 res = await get("/games/scoped-tv/tv.html?tv=tv-test-1");
 if (res.headers.get("access-control-allow-origin") !== "*" || !res.headers.get("content-security-policy") || (await res.text()) !== html) fail("scoped tv.html headers/body");
-ok("GET /games/scoped-tv/{tv.html,meta.json}: 404 without tv, 200 with tv-test-1, 404 with another tv");
+if ((await get("/games?tv=tv-test-1").then((r) => r.json())).find((m) => m.id === "scoped-tv")?.lobby !== true) fail("scoped-tv lobby flag");
+ok("GET /games/scoped-tv/{tv.html,meta.json,lobby.html}: 404 without tv, 200 with tv-test-1, 404 with another tv; listed with lobby:true");
 for (const q of ["", "?tv=tv-test-1", "?tv=tv-other"]) {
   if ((await get(`/games/scoped-global/tv.html${q}`)).status !== 200 || (await get(`/games/sample/meta.json${q}`)).status !== 200) fail(`global bundle with "${q}"`);
 }
@@ -148,15 +155,58 @@ ok("global bundles are served with or without ?tv=");
 const pubRoot = path.join(tmp, "pubroot");
 fs.mkdirSync(path.join(pubRoot, "scripts"), { recursive: true });
 fs.copyFileSync(path.join(relayDir, "scripts/publish-games.mjs"), path.join(pubRoot, "scripts/publish-games.mjs"));
-for (const [id, extra] of [["hand-tv", { scope: "tv", tvId: "tv-test-1" }], ["hand-ok", {}]]) {
+for (const [id, extra] of [["hand-tv", { scope: "tv", tvId: "tv-test-1" }], ["hand-ok", {}], ["hand-big", { maxPlayers: 40 }]]) {
   fs.mkdirSync(path.join(pubRoot, "games", id), { recursive: true });
   fs.writeFileSync(path.join(pubRoot, "games", id, "meta.json"), JSON.stringify(meta(id, extra)));
   fs.writeFileSync(path.join(pubRoot, "games", id, "tv.html"), html);
 }
 const pub2 = spawnSync(process.execPath, [path.join(pubRoot, "scripts/publish-games.mjs"), "--url", base],
   { env: { ...process.env, PUBLISH_TOKEN: TOKEN }, encoding: "utf8" });
-if (pub2.status === 0 || !/1 published, 1 failed/.test(pub2.stdout) || !/FAILED hand-tv: .*hand-built bundles are global/.test(pub2.stderr)) fail(`publish-games scope tv: ${pub2.status}\n${pub2.stdout}${pub2.stderr}`);
+if (pub2.status === 0 || !/2 published, 1 failed/.test(pub2.stdout) || !/hand-big: maxPlayers 40 clamped to 16/.test(pub2.stdout) || !/FAILED hand-tv: .*hand-built bundles are global/.test(pub2.stderr)) fail(`publish-games scope tv: ${pub2.status}\n${pub2.stdout}${pub2.stderr}`);
 if ((await idsFor("?tv=tv-test-1")).includes("hand-tv")) fail("hand-tv was published");
-ok("scripts/publish-games.mjs refuses a hand-built meta with scope \"tv\" and publishes the rest");
+if ((await get("/games/hand-big/meta.json").then((r) => r.json())).maxPlayers !== 16) fail("hand-big maxPlayers not clamped");
+ok("scripts/publish-games.mjs refuses a hand-built meta with scope \"tv\", clamps maxPlayers 40 to 16 (logged), and publishes the rest");
+
+// Lobby card (PLAN.md "Lobby card").
+const listed = async (id) => (await get("/games").then((r) => r.json())).find((m) => m.id === id);
+res = await put("with-lobby", { meta: meta("with-lobby", { lobby: false }), html, lobby: lobbyHtml });
+const wl = await res.json();
+if (res.status !== 200 || wl.meta?.lobby !== true) fail(`PUT with lobby ${res.status} ${JSON.stringify(wl)}`);
+if ((await listed("with-lobby"))?.lobby !== true) fail("with-lobby not listed with lobby:true");
+res = await get("/games/with-lobby/lobby.html");
+if (res.status !== 200 || !res.headers.get("content-type")?.startsWith("text/html") || !res.headers.get("content-security-policy") || res.headers.get("access-control-allow-origin") !== "*" || (await res.text()) !== lobbyHtml)
+  fail(`with-lobby lobby.html ${res.status}`);
+if ((await get("/games/with-lobby/meta.json").then((r) => r.json())).lobby !== true) fail("meta.json lobby flag");
+ok("PUT /games/:id with lobby → meta.lobby true (whatever the meta said), listed lobby:true, GET /games/:id/lobby.html serves it with the CSP");
+if ((await listed("prebuilt-old"))?.lobby !== false || (await get("/games/prebuilt-old/lobby.html")).status !== 404) fail("bundle without lobby");
+res = await put("no-lobby", { meta: meta("no-lobby", { lobby: true }), html });
+if ((await res.json()).meta?.lobby !== false || (await listed("no-lobby"))?.lobby !== false || (await get("/games/no-lobby/lobby.html")).status !== 404) fail("no-lobby claiming lobby:true");
+ok("a bundle without a lobby card → lobby:false (even if its meta claimed true) and lobby.html 404");
+res = await put("with-lobby", { meta: meta("with-lobby"), html });
+if (res.status !== 200 || (await listed("with-lobby"))?.lobby !== false || (await get("/games/with-lobby/lobby.html")).status !== 404) fail("republish without lobby");
+ok("republishing without lobby removes the card: lobby:false, lobby.html 404");
+for (const [lobby, why, re] of [
+  ["<p>no document</p>", "not html", /not an html document/],
+  ['<!doctype html><script src="https://cdn.example/x.js"></script>', "script src", /script src/],
+  ['<!doctype html><style>@import url("https://x.example/a.css");</style>', "@import", /external resource/],
+  ["<!doctype html><script>fetch('/x')</script>", "fetch", /network/],
+  ["<!doctype html>" + "x".repeat(300 * 1024), "too big", /cap is 256 KB/],
+  ["", "empty", /non-empty/],
+]) {
+  res = await put("bad-lobby", { meta: meta("bad-lobby"), html, lobby });
+  const b = await res.json();
+  if (res.status !== 400 || !re.test(b.error)) fail(`PUT with a lobby that is ${why}: ${res.status} ${JSON.stringify(b).slice(0, 200)}`);
+}
+if ((await get("/games/bad-lobby/meta.json")).status !== 404) fail("bad-lobby was stored");
+ok("PUT rejects a lobby that is not html, loads a script/@import from the network, fetches, is over 256 KB or empty → 400");
+for (const [extra, why] of [[{ maxPlayers: 17 }, "maxPlayers 17"], [{ maxPlayers: undefined }, "no maxPlayers"], [{ minPlayers: 4, maxPlayers: 3 }, "max < min"], [{ maxPlayers: 8.5 }, "maxPlayers 8.5"]]) {
+  res = await put("bad-max", { meta: meta("bad-max", extra), html });
+  if (res.status !== 400 || !/maxPlayers must be an integer with minPlayers <= maxPlayers <= 16/.test((await res.json()).error)) fail(`PUT with ${why} should 400`);
+}
+if ((await put("max-16", { meta: meta("max-16", { maxPlayers: 16 }), html })).status !== 200) fail("maxPlayers 16 should publish");
+ok("checkMeta: maxPlayers must be an integer with minPlayers <= maxPlayers <= 16 (17, missing, below min, 8.5 → 400; 16 → 200)");
+// The publish script uploads lobby.html when the folder has one (the sample was published above).
+if ((await listed("sample"))?.lobby !== true || (await get("/games/sample/lobby.html").then((r) => r.text())) !== sampleLobby) fail("published sample lobby");
+ok("scripts/publish-games.mjs --url uploaded the sample's lobby.html; listed lobby:true");
 
 console.log(`\n${n} checks passed`); process.exit(0);

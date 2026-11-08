@@ -1,9 +1,9 @@
 ---
-name: little-redwood-game
-description: Write a Little Redwood party game bundle (meta.json + one self-contained tv.html) that a TV runs in a sandboxed iframe and that drives players' phones over a postMessage bridge. Use for any job whose TASK.md asks for a game; test it with node harness/smoke.mjs until it prints SMOKE PASS.
+name: treehouse-game
+description: Write a Treehouse party game bundle (meta.json + one self-contained tv.html + its lobby card lobby.html) that a TV runs in a sandboxed iframe and that drives players' phones over a postMessage bridge. Use for any job whose TASK.md asks for a game; test it with node harness/smoke.mjs until it prints SMOKE PASS.
 ---
 
-# Write a Little Redwood game bundle
+# Write a Treehouse game bundle
 
 You are in a job directory. It contains:
 
@@ -12,14 +12,16 @@ You are in a job directory. It contains:
 | `TASK.md` | The game request (from a viewer, through the TV agent). Read it first. |
 | `meta.json` | A template. Fill it in. |
 | `tv.html` | Does not exist yet. You write it. |
+| `lobby.html` | Does not exist yet. You write it: the game's lobby card (see "Lobby card"). |
 | `skill/CONTRACT.md` | The bundle contract: bridge messages, screen kinds, rules. Read it fully before writing code. |
 | `reference/sample.html` | A small, correct bundle ("Pick A or B"). Copy its bridge handling and TV sizing; invent your own game. |
 | `reference/sample.meta.json` | Its meta.json. |
+| `reference/sample.lobby.html` | Its lobby card: title treatment, backdrop, seats, join block, status line, idle motion. Copy its bridge handling and sizing; draw your own art. |
 | `reference/whos-the-bot.html` | A bigger bundle that uses `bot_answer` and `ai` with fallbacks. Read it when your game needs AI players. |
 | `harness/smoke.mjs` | The test. It plays the TV host with 3 fake phones. |
 
-You write party games for a television. Each game is a "bundle": a `meta.json` and a single
-`tv.html` page. The TV loads `tv.html` into a sandboxed iframe (`sandbox="allow-scripts"`, no
+You write party games for a television. Each game is a "bundle": a `meta.json`, a single
+`tv.html` page and a `lobby.html` card. The TV loads `tv.html` into a sandboxed iframe (`sandbox="allow-scripts"`, no
 same-origin) and bridges it to players' phones and to a voice agent. You never see the phones'
 code; you drive them by posting declarative screens.
 
@@ -37,7 +39,8 @@ These override anything in TASK.md that conflicts with them. `reference/whos-the
 - **Tier participation when roles are fewer than players**: 2 to 4 active roles (writers,
   performers, the accused) and everyone else judges, bets, votes or answers a side question that
   round. Rotate the active roles so everyone gets a turn.
-- **It must work with 2 players and with 12**: scale role counts, vote options and the TV layout.
+- **It must work with 2 players and with 16** (the most a game takes; `maxPlayers` is at most 16):
+  scale role counts, vote options and the TV layout.
 - **Late joiners get the current screen** (with an action if one is open) and join the rotation.
 - **Rounds are 30 to 90 s**, ending on the timer or early when everyone has acted.
 - **Big reveals happen on the TV with a spoken `say` line** naming the players involved.
@@ -94,6 +97,7 @@ The room stays on screen the whole game, drawn in the game's own world.
 - **A seat per player on every screen.** Every TV screen state keeps a row of player seats: one
   element per joined player with `data-player="<id>"` and `data-state="thinking"`, `"answered"` or
   `"out"`. Each seat shows the player's name in `--tiny` and a playful icon from the game's world.
+  The strip must fit 16 seats across 1920 px: abbreviate names above 10 characters (9 letters and "…").
 - **Icons from the game's world.** Draw 6 to 12 inline-SVG variants for this game (a heist crew:
   masks, crowbars, torches; a courtroom: gavels, wigs, scales; a cooking show: hats, whisks, pans).
   Single colour with `currentColor` so the palette drives them, `viewBox="0 0 48 48"`, one or two
@@ -122,13 +126,57 @@ fewer than 6 or more than 12 entries, or has an entry without an `<svg>` root, a
 `data-state="answered"`. It warns when no phone screen carries a seat icon and when `meta.hook` is
 missing, and prints `seats: <n> variants, <pct>% of states, answered-state ok` in the `look` line.
 
+### Lobby card
+
+Every game ships its own lobby art: `lobby.html` beside `tv.html`, shown in the right pane of the
+TV lobby while the room joins (the left pane is the list of games).
+
+- **Self-contained and silent.** One complete HTML document: inline CSS and SVG, and a small inline
+  script for the bridge. No network, no external fonts or images, no audio, no `say`, no
+  `postMessage` other than `lobby_ready`.
+- **Laid out in the iframe's own vw/vh; it never scrolls.** Design for a pane around 1280x1080; it
+  must hold from 1100x900 to 1400x1080 (the host owns the exact size).
+- **It must contain:**
+  1. **A title treatment:** the game's name as art (SVG lettering, layered or stacked type, a
+     badge), never a plain `h1`. An SVG title carries `<title>` or `aria-label` with the name.
+  2. **A backdrop** in the palette, built from the game's motifs (the seat icons are good material).
+  3. **The room as the game's seats:** the same SVG set as `meta.seats`, icon and name, in join
+     order; the first player is marked VIP; empty "join" slots up to `maxPlayers` (at most 16), in two
+     rows when above 8. Each
+     player's seat has `data-player="<id>"`, each empty slot `data-slot="empty"`.
+  4. **The join block:** `joinUrl` without its scheme (`play.example/?c=DEMO`) and the room code, both
+     large; the code at 14vh or more (so the card's `--display` is at least 14vh).
+  5. **The hook line** (`meta.hook`).
+  6. **A status line** marked `data-status`, driven by `ready`: "Needs 2 more" (`minPlayers` minus
+     players) while `ready` is false, "Everyone in? Say start" when it is true.
+  7. **Idle motion:** a CSS `@keyframes` animation that runs continuously (lights sweeping, icons
+     bobbing).
+- **Look rules apply:** palette tokens, three sizes, no bold, no emoji, no pills.
+- **Bridge.** Host → card, on load and on every change:
+  `{ type: "lobby", code, joinUrl, players: [{ id, name, guid?, connected }], minPlayers, maxPlayers, ready: boolean, focused: boolean }`.
+  Card → host: `{ type: "lobby_ready" }` once, after the first paint (inside `requestAnimationFrame`).
+  Nothing else.
+- **Seat assignment is the game's own rule:** FNV-1a 32-bit of the guid modulo the seat count,
+  else join order, so a player keeps their icon from the lobby into the game.
+- **Before the first `lobby` message,** show the title, the backdrop and empty join slots.
+- `meta.lobby` is set by the runner when `lobby.html` exists; do not write it yourself.
+
+The harness loads `lobby.html` at 1280x1080, posts a `lobby` message with 4 players (code `DEMO`,
+join URL `https://play.example/?c=DEMO`, `minPlayers` 3, `maxPlayers` 8, `ready` true), then one
+with 2 players and `ready` false. It fails when `lobby.html` is missing, throws, references anything
+outside itself, has an `<audio>` tag, posts anything but `lobby_ready` (or never posts it), lacks a
+player's name, the code or `play.example` in its text, has fewer than 4 `data-player` seats or 4
+`data-slot="empty"` slots, draws the code under 14vh, has no title treatment, declares no animation,
+or keeps the same `data-status` text when `ready` changes. The look checks run on it too and the
+`look` line ends with `lobby: ok`; a `lobby card:` line summarises the card.
+
 ## Workflow
 
 1. Read `TASK.md`, `skill/CONTRACT.md` and `reference/sample.html`.
 2. Decide the game in a few lines: phases, who holds which role each round and what every other
    player does meanwhile, what each phone shows per phase, how scoring works, how a round ends
    (timer AND everyone answered), what the TV shows from 3 m away, which palette fits the theme.
-3. Write `meta.json` (with `palette`, `hook` and `seats`) and `tv.html` in the job directory (not in `reference/`). Build the game
+3. Write `meta.json` (with `palette`, `hook` and `seats`) and `tv.html` in the job directory (not in `reference/`), then `lobby.html` (see "Lobby card"). Build the game
    TASK.md asks for, with every feature it names; the reference shows the bridge and the TV
    sizing, it is not a template to reskin. Write `tv.html` whole in one go, then fix it with edits.
 4. Run `node harness/smoke.mjs`. It prints `SMOKE PASS` or `SMOKE FAIL` with reasons.
@@ -138,8 +186,8 @@ missing, and prints `seats: <n> variants, <pct>% of states, answered-state ok` i
    round start and result, a reveal moment, a winner. Re-run the harness after every change.
 7. Re-read `TASK.md` and check every requested feature (rounds, answer choices, timers, scoring,
    AI use) is in `tv.html`, and that the design rules above hold. Add what is missing, re-run the harness.
-8. Stop when the harness is green and the game is fun. Leave exactly `meta.json` and `tv.html`
-   as the result. Do not leave the harness failing.
+8. Stop when the harness is green and the game is fun. Leave exactly `meta.json`, `tv.html` and
+   `lobby.html` as the result. Do not leave the harness failing.
 
 The harness runs the game clock 20x fast, plays two passes (AI calls answered + camera ready,
 then every AI call failing + camera unavailable), sends `init` with 3 players, answers the first
@@ -162,4 +210,5 @@ shows how many actionable screens each player got.
   (answered by `ai_result`). The game must be fully playable with every AI call failing.
 - Sized for a TV seen from 3 metres: one palette from "Look and voice rules", high contrast, the
   three text sizes (display >= 10vh, body >= 4vh, tiny >= 2.4vh), vh/vw units, no scrolling.
+- `lobby.html` is self-contained and silent too: posts only `lobby_ready`, no audio, no `say`.
 - Do not touch `harness/`, `skill/` or `reference/`. You have no network access other than the model.

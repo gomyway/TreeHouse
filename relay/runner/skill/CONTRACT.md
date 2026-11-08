@@ -1,13 +1,14 @@
 # Game bundle contract
 
-A bundle is two files in the job directory:
+A bundle is three files in the job directory:
 
-- `meta.json`: `{ "id", "title", "description", "hook", "phases", "minPlayers", "maxPlayers", "palette", "seats" }`
+- `meta.json`: `{ "id", "title", "description", "hook", "phases", "minPlayers", "maxPlayers", "palette", "seats", "lobby" }`
   - `id`: lowercase-kebab slug of the title (the runner replaces it with a unique one at publish).
   - `title`: short game name.
   - `description`: one or two sentences a TV agent can read aloud.
   - `phases`: the phase names your `state` messages use, e.g. `["write", "vote", "reveal", "final"]`.
-  - `minPlayers` (integer >= 1), `maxPlayers` (integer >= minPlayers).
+  - `minPlayers` (integer >= 1), `maxPlayers` (integer, minPlayers <= maxPlayers <= 16; the runner
+    clamps a larger value to 16).
   - `phonesRequired` (optional, default true): set false only for camera-only games that must
     start with nobody joined; phones then stay optional for names and bets.
   - `palette`: one of `"Noir"`, `"Broadcast"`, `"Paper"`, `"Arcade"`, `"Campfire"`, `"Lagoon"` (see
@@ -15,10 +16,13 @@ A bundle is two files in the job directory:
   - `hook`: one sentence naming the game's world ("A heist crew cracking the vault one bluff at a time.").
   - `seats`: the 6 to 12 seat icons tv.html draws, `[{ "name": "<variant name>", "svg": "<svg …>" }]`
     (see "Roster seats"); the host draws the room in them from the picker.
+  - `lobby`: `true` when the bundle ships `lobby.html`. The runner sets it; do not write it.
   - Do not add `createdAt` or `prompt`; the server adds them.
 - `tv.html`: one self-contained page. The TV loads it into a sandboxed iframe
   (`sandbox="allow-scripts"`, no same-origin) and bridges it to players' phones and to a voice agent.
   You never see the phones' code; you drive them by posting declarative screens.
+- `lobby.html`: the game's lobby card, one self-contained page the TV lobby shows while the room
+  joins (see "Lobby card").
 
 ## Design rules (non-negotiable)
 
@@ -30,7 +34,7 @@ A bundle is two files in the job directory:
   `custom`. `info` is only for beats between actions.
 - When roles are fewer than players, tier participation: 2 to 4 active roles, everyone else
   judges, bets, votes or answers a side question that round; rotate the active roles.
-- Works with 2 players and with 12. Late joiners get the current screen and join the rotation.
+- Works with 2 players and with 16 (`maxPlayers` is at most 16). Late joiners get the current screen and join the rotation.
 - Rounds are 30 to 90 s. Big reveals on the TV with a spoken `say` line naming the players.
 - About 3 `moment`s and 2 to 4 `award`s, each naming real players.
 - The harness fails a game where any joined player never got an actionable screen
@@ -85,6 +89,7 @@ The room stays on screen the whole game, drawn in the game's own world.
 - **A seat per player on every screen.** Every TV screen state keeps a row of player seats: one
   element per joined player with `data-player="<id>"` and `data-state="thinking"`, `"answered"` or
   `"out"`. Each seat shows the player's name in `--tiny` and a playful icon from the game's world.
+  The strip must fit 16 seats across 1920 px: abbreviate names above 10 characters (9 letters and "…").
 - **Icons from the game's world.** Draw 6 to 12 inline-SVG variants for this game (a heist crew:
   masks, crowbars, torches; a courtroom: gavels, wigs, scales; a cooking show: hats, whisks, pans).
   Single colour with `currentColor` so the palette drives them, `viewBox="0 0 48 48"`, one or two
@@ -112,6 +117,50 @@ fewer than 6 or more than 12 entries, or has an entry without an `<svg>` root, a
 `currentColor` (or with a `<text>` element, an emoji, a `<script>` or an external reference), and a player who answered on their phone whose seat never reached
 `data-state="answered"`. It warns when no phone screen carries a seat icon and when `meta.hook` is
 missing, and prints `seats: <n> variants, <pct>% of states, answered-state ok` in the `look` line.
+
+### Lobby card
+
+Every game ships its own lobby art: `lobby.html` beside `tv.html`, shown in the right pane of the
+TV lobby while the room joins (the left pane is the list of games).
+
+- **Self-contained and silent.** One complete HTML document: inline CSS and SVG, and a small inline
+  script for the bridge. No network, no external fonts or images, no audio, no `say`, no
+  `postMessage` other than `lobby_ready`.
+- **Laid out in the iframe's own vw/vh; it never scrolls.** Design for a pane around 1280x1080; it
+  must hold from 1100x900 to 1400x1080 (the host owns the exact size).
+- **It must contain:**
+  1. **A title treatment:** the game's name as art (SVG lettering, layered or stacked type, a
+     badge), never a plain `h1`. An SVG title carries `<title>` or `aria-label` with the name.
+  2. **A backdrop** in the palette, built from the game's motifs (the seat icons are good material).
+  3. **The room as the game's seats:** the same SVG set as `meta.seats`, icon and name, in join
+     order; the first player is marked VIP; empty "join" slots up to `maxPlayers` (at most 16), in two
+     rows when above 8. Each
+     player's seat has `data-player="<id>"`, each empty slot `data-slot="empty"`.
+  4. **The join block:** `joinUrl` without its scheme (`play.example/?c=DEMO`) and the room code, both
+     large; the code at 14vh or more (so the card's `--display` is at least 14vh).
+  5. **The hook line** (`meta.hook`).
+  6. **A status line** marked `data-status`, driven by `ready`: "Needs 2 more" (`minPlayers` minus
+     players) while `ready` is false, "Everyone in? Say start" when it is true.
+  7. **Idle motion:** a CSS `@keyframes` animation that runs continuously (lights sweeping, icons
+     bobbing).
+- **Look rules apply:** palette tokens, three sizes, no bold, no emoji, no pills.
+- **Bridge.** Host → card, on load and on every change:
+  `{ type: "lobby", code, joinUrl, players: [{ id, name, guid?, connected }], minPlayers, maxPlayers, ready: boolean, focused: boolean }`.
+  Card → host: `{ type: "lobby_ready" }` once, after the first paint (inside `requestAnimationFrame`).
+  Nothing else.
+- **Seat assignment is the game's own rule:** FNV-1a 32-bit of the guid modulo the seat count,
+  else join order, so a player keeps their icon from the lobby into the game.
+- **Before the first `lobby` message,** show the title, the backdrop and empty join slots.
+- `meta.lobby` is set by the runner when `lobby.html` exists; do not write it yourself.
+
+The harness loads `lobby.html` at 1280x1080, posts a `lobby` message with 4 players (code `DEMO`,
+join URL `https://play.example/?c=DEMO`, `minPlayers` 3, `maxPlayers` 8, `ready` true), then one
+with 2 players and `ready` false. It fails when `lobby.html` is missing, throws, references anything
+outside itself, has an `<audio>` tag, posts anything but `lobby_ready` (or never posts it), lacks a
+player's name, the code or `play.example` in its text, has fewer than 4 `data-player` seats or 4
+`data-slot="empty"` slots, draws the code under 14vh, has no title treatment, declares no animation,
+or keeps the same `data-status` text when `ready` changes. The look checks run on it too and the
+`look` line ends with `lobby: ok`; a `lobby card:` line summarises the card.
 
 ## The bridge (window.postMessage, exactly these shapes)
 
