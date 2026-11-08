@@ -131,35 +131,70 @@ export function Lobby({
             {players.length}
           </span>
         </div>
-        {players.length ? (
-          <ul className="player-grid">
-            {players.map((p, i) => (
-              <li
-                key={p.id}
-                className="player"
-                data-little="item"
-                data-little-id={p.id}
-                data-little-label={p.name}
-                data-little-order={i + 1}
-                style={{ ["--c" as string]: p.color }}
-              >
-                {(() => {
-                  const seat = seatFor(p, seats);
-                  return seat ? (
-                    <img className="seat" key={`${fg?.id}-${seat.name}`} src={seatSrc(seat, p.color)} alt={seat.name} title={seat.name} />
-                  ) : (
-                    <span className="avatar">{p.name.slice(0, 1).toUpperCase()}</span>
-                  );
-                })()}
-                <span className="name">{p.name}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="empty">Waiting for the first player…</div>
-        )}
+        <Couch players={players} seats={seats} gameKey={fg?.id ?? ""} />
         <div className="hint">Say “play Who’s the Bot” or “make a game where…”</div>
       </section>
     </main>
+  );
+}
+
+/** The room as a couch: round seats on the cushions, empty ones inviting people to join. */
+function Couch({ players, seats, gameKey }: { players: Player[]; seats: ReturnType<typeof validSeats>; gameKey: string }) {
+  const MAX = 8;
+  const shown = players.slice(0, MAX);
+  const slots = Math.min(MAX, Math.max(4, shown.length + (shown.length < MAX ? 1 : 0)));
+  // One couch seats four; a fifth player brings out a second couch.
+  const rows = slots > 4 ? [4, slots - 4] : [slots];
+  let k = 0;
+  return (
+    <div className={`couch couches-${rows.length}`}>
+      {rows.map((n, r) => (
+        <div key={r} className="sofa">
+          <ul className="couch-row">
+            {Array.from({ length: n }, () => {
+              const i = k++;
+              const p = shown[i];
+              if (!p) {
+                return (
+                  <li key={`empty-${i}`} className="seat-slot empty">
+                    <span className="ring">Join!</span>
+                  </li>
+                );
+              }
+              const seat = seatFor(p, seats);
+              return (
+                <li
+                  key={p.id}
+                  className="seat-slot"
+                  data-little="item"
+                  data-little-id={p.id}
+                  data-little-label={p.name}
+                  data-little-order={i + 1}
+                  style={{ ["--c" as string]: p.color }}
+                >
+                  <span className="ring">
+                    {seat ? (
+                      <img key={`${gameKey}-${seat.name}`} src={seatSrc(seat, p.color)} alt={seat.name} title={seat.name} />
+                    ) : (
+                      <b>{p.name.slice(0, 1).toUpperCase()}</b>
+                    )}
+                  </span>
+                  <span className="seat-name">{p.name}</span>
+                </li>
+              );
+            })}
+          </ul>
+          <svg className="couch-art" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
+            <rect x="40" y="0" width="520" height="110" rx="28" className="couch-back" />
+            <rect x="0" y="60" width="70" height="120" rx="26" className="couch-arm" />
+            <rect x="530" y="60" width="70" height="120" rx="26" className="couch-arm" />
+            <rect x="60" y="95" width="480" height="80" rx="18" className="couch-cushion" />
+            <rect x="80" y="175" width="18" height="24" rx="4" className="couch-leg" />
+            <rect x="502" y="175" width="18" height="24" rx="4" className="couch-leg" />
+          </svg>
+        </div>
+      ))}
+      {players.length > MAX ? <div className="couch-more">+{players.length - MAX} more on the floor</div> : null}
+    </div>
   );
 }
