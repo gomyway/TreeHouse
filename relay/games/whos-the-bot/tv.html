@@ -79,10 +79,86 @@
   .award .k { font-size: var(--tiny); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
   .award .v { font-size: var(--body); margin-top: 6px; }
   .award .n { font-size: var(--tiny); color: var(--muted); margin-top: 4px; }
+
+  /* Roster seats (CONTRACT "Roster seats"): a seat per player along the bottom on every screen.
+     thinking = outlined, answered = filled accent, out = 40%, leader = ★, scores count up. */
+  #app { padding-bottom: 176px !important; }
+  #seats { position: fixed; left: 0; right: 0; bottom: 0; height: 150px; display: flex; justify-content: center; align-items: center; gap: 28px; padding: 0 60px 16px; font-size: var(--tiny); z-index: 5; }
+  .seat { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 96px; transition: opacity .3s; }
+  .seat svg { width: 64px; height: 64px; color: var(--muted); transition: color .3s; }
+  .seat[data-state="answered"] svg { color: var(--accent); }
+  .seat[data-state="answered"] svg [stroke] { fill: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .seat[data-state="out"] { opacity: .4; }
+  .seat .lead { display: none; color: var(--accent); }
+  .seat.leader .lead { display: inline; }
+  .seat .pts { color: var(--muted); font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
 <div id="app"><div class="center"><div class="kicker">Who's the Bot?</div><div class="big">Getting ready…</div></div></div>
+<div id="seats"></div>
+<script>
+// Roster seats: one per joined player, from meta.seats; FNV-1a(guid) like the TV lobby, else join order.
+// Answered when the player's phone sends input; back to thinking when the game's phase changes.
+(() => {
+  const SEATS = [{"name": "Fedora", "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 31h36\"/><path d=\"M14 31c0-11 4-17 10-17s10 6 10 17\"/><path d=\"M15 26h18\"/></svg>"}, {"name": "Magnifier", "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"20\" cy=\"20\" r=\"11\"/><path d=\"M28 28l12 12\"/></svg>"}, {"name": "Domino mask", "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 20c6-6 30-6 36 0c-2 8-8 10-12 6l-6-4-6 4c-4 4-10 2-12-6z\"/><circle cx=\"16\" cy=\"21\" r=\"2.5\"/><circle cx=\"32\" cy=\"21\" r=\"2.5\"/></svg>"}, {"name": "Robot", "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"12\" y=\"16\" width=\"24\" height=\"20\" rx=\"3\"/><path d=\"M24 16v-6\"/><circle cx=\"24\" cy=\"8\" r=\"2\"/><circle cx=\"19\" cy=\"25\" r=\"2\"/><circle cx=\"29\" cy=\"25\" r=\"2\"/><path d=\"M19 31h10\"/></svg>"}, {"name": "Fingerprint", "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 36c-3-5-3-12 0-16a10 10 0 0 1 16 0c3 4 3 9 1 13\"/><path d=\"M20 34c-2-4-2-9 1-12a5 5 0 0 1 7 1c2 3 2 6 1 9\"/><path d=\"M24 24v10\"/></svg>"}, {"name": "Key", "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"16\" cy=\"24\" r=\"7\"/><path d=\"M23 24h17M34 24v6M39 24v4\"/></svg>"}, {"name": "Badge", "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M24 6l5 11 12 1-9 8 3 12-11-6-11 6 3-12-9-8 12-1z\"/></svg>"}, {"name": "Question", "svg": "<svg viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 12h32v20H22l-8 8v-8H8z\"/><path d=\"M21 19a3 3 0 1 1 4 3c-1 1-1 2-1 3\"/><path d=\"M24 29v0.5\"/></svg>"}];
+  const row = document.getElementById("seats");
+  const players = new Map(), seatOf = new Map(), els = new Map(), shown = new Map();
+  let phase;
+  const fnv = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  function assign(p) {
+    if (seatOf.has(p.id)) return;
+    if (p.guid) return void seatOf.set(p.id, fnv(String(p.guid)) % SEATS.length);
+    const used = new Set(seatOf.values());
+    let i = seatOf.size % SEATS.length;
+    for (let k = 0; k < SEATS.length && used.has(i); k++) i = (i + 1) % SEATS.length;
+    seatOf.set(p.id, i);
+  }
+  function draw() {
+    for (const [id, el] of els) if (!players.has(id)) { el.remove(); els.delete(id); }
+    for (const p of players.values()) {
+      assign(p);
+      let el = els.get(p.id);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "seat"; el.dataset.player = p.id; el.dataset.state = "thinking";
+        el.innerHTML = SEATS[seatOf.get(p.id)].svg + `<div><span class="nm"></span><span class="lead"> ★</span></div><div class="pts">0</div>`;
+        els.set(p.id, el); row.append(el);
+      }
+      el.querySelector(".nm").textContent = p.name;
+      if (p.connected === false) el.dataset.state = "out";
+      else if (el.dataset.state === "out") el.dataset.state = "thinking";
+    }
+  }
+  function countUp(id, to) {
+    const el = els.get(id)?.querySelector(".pts"); if (!el) return;
+    const from = shown.get(id) ?? 0; shown.set(id, to);
+    if (from === to) return void (el.textContent = to);
+    const t0 = performance.now();
+    const step = (t) => { const k = Math.min(1, (t - t0) / 600); el.textContent = Math.round(from + (to - from) * k); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
+  window.addEventListener("message", (e) => {
+    const m = e.data; if (!m || typeof m !== "object") return;
+    if ((m.type === "init" || m.type === "players") && Array.isArray(m.players)) {
+      players.clear(); for (const p of m.players) if (p && p.id) players.set(p.id, p); draw();
+    } else if (m.type === "input" && m.player) {
+      const el = els.get(m.player); if (el && el.dataset.state !== "out") el.dataset.state = "answered";
+    }
+  });
+  // The game's send() calls this with every outgoing message.
+  window.__seats = (m) => {
+    if (m?.type !== "state") return;
+    if (m.phase !== phase) { phase = m.phase; for (const el of els.values()) if (el.dataset.state === "answered") el.dataset.state = "thinking"; }
+    if (Array.isArray(m.scores)) {
+      let best = 0, lead = null;
+      for (const s of m.scores) { if (!els.has(s.id)) continue; const v = Number(s.pts ?? s.score ?? 0) || 0; countUp(s.id, v); if (v > best) { best = v; lead = s.id; } }
+      for (const [id, el] of els) el.classList.toggle("leader", id === lead);
+    }
+  };
+})();
+</script>
 <script>
 // Who's the Bot? — a game bundle for the Little Redwood TV host (PLAN.md "Game bundle").
 // host → game: init, players, input, sensor, voice, ai_result
@@ -131,7 +207,7 @@ let botDelta = 0, difficulty = "normal", theme = null, nextPrompt = null;
 const usedPrompts = new Set();
 
 const app = document.getElementById("app");
-const send = (m) => window.parent.postMessage(m, "*");
+const send = (m) => { window.__seats?.(m); window.parent.postMessage(m, "*"); };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const later = (ms, fn) => { const t = token; setTimeout(() => { if (t === token) fn(); }, ms); };
 const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
