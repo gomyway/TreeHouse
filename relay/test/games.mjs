@@ -55,9 +55,11 @@ if (res.status !== 200 || !authored.id) fail(`POST /author ${res.status} ${JSON.
 list = await ids();
 if (!same(list, [authored.id, "sample"])) fail(`after author: ${list}`); ok("authored bundle is listed before the sample");
 
-const html = "<!doctype html><title>prebuilt</title><script>parent.postMessage({type:'done'},'*')</script>";
-const lobbyHtml = "<!doctype html><title>card</title><style>@keyframes s{to{opacity:.5}} p{animation:s 2s infinite}</style><p>card</p><script>parent.postMessage({type:'lobby_ready'},'*')</script>";
-const meta = (id, extra = {}) => ({ id, title: `Pre-built ${id}`, description: "test bundle", phases: ["one"], minPlayers: 2, maxPlayers: 6, ...extra });
+// Fixtures pass the static pre-save gate (src/gate.mjs): the sample's tv.html, lobby card and look fields.
+const html = fs.readFileSync(path.join(relayDir, "games/sample/tv.html"), "utf8");
+const lobbyHtml = sampleLobby;
+const { palette, hook, seats, engine } = JSON.parse(fs.readFileSync(path.join(relayDir, "games/sample/meta.json"), "utf8"));
+const meta = (id, extra = {}) => ({ id, title: `Pre-built ${id}`, description: "test bundle", phases: ["intro", "pick"], minPlayers: 2, maxPlayers: 6, palette, hook, seats, engine, ...extra });
 
 if ((await put("prebuilt-old", { meta: meta("prebuilt-old"), html }, null)).status !== 403) fail("PUT without token should 403");
 if ((await put("prebuilt-old", { meta: meta("prebuilt-old"), html }, "wrong")).status !== 403) fail("PUT with wrong token should 403");
@@ -66,6 +68,11 @@ if ((await put("prebuilt-old", { meta: meta("other-id"), html })).status !== 400
 if ((await put("prebuilt-old", { meta: { id: "prebuilt-old", title: "x" }, html })).status !== 400) fail("PUT with incomplete meta should 400");
 if ((await put("prebuilt-old", { meta: meta("prebuilt-old") })).status !== 400) fail("PUT without html should 400");
 ok("PUT /games/:id rejects a mismatched id, incomplete meta, missing html → 400");
+res = await put("gated-bold", { meta: meta("gated-bold"), html: html.replace("</style>", ".x { font-weight: 700; }\n</style>") });
+{ const b = await res.json();
+  if (res.status !== 400 || !/gate S10: font-weight 600 or more/.test(b.error) || !b.gate?.length) fail(`PUT with a bold tv.html should 400 from the gate, got ${res.status} ${JSON.stringify(b).slice(0, 300)}`); }
+if ((await get("/games/gated-bold/meta.json")).status !== 404) fail("gated-bold was stored");
+ok("PUT /games/:id with a tv.html the static gate fails (font-weight 700) → 400 listing gate S10, nothing stored");
 
 res = await put("prebuilt-old", { meta: meta("prebuilt-old", { createdAt: "2000-01-01T00:00:00.000Z", extra: "kept" }), html });
 if (res.status !== 200) fail(`PUT prebuilt-old ${res.status} ${await res.text()}`);
@@ -155,6 +162,8 @@ ok("global bundles are served with or without ?tv=");
 const pubRoot = path.join(tmp, "pubroot");
 fs.mkdirSync(path.join(pubRoot, "scripts"), { recursive: true });
 fs.copyFileSync(path.join(relayDir, "scripts/publish-games.mjs"), path.join(pubRoot, "scripts/publish-games.mjs"));
+fs.mkdirSync(path.join(pubRoot, "src"), { recursive: true });
+fs.copyFileSync(path.join(relayDir, "src/gate.mjs"), path.join(pubRoot, "src/gate.mjs"));
 for (const [id, extra] of [["hand-tv", { scope: "tv", tvId: "tv-test-1" }], ["hand-ok", {}], ["hand-big", { maxPlayers: 40 }]]) {
   fs.mkdirSync(path.join(pubRoot, "games", id), { recursive: true });
   fs.writeFileSync(path.join(pubRoot, "games", id, "meta.json"), JSON.stringify(meta(id, extra)));

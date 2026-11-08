@@ -7,6 +7,7 @@
 // Scope (PLAN.md "Game scope"): meta.scope "global" (or absent) is listed and served to every TV;
 // "tv" bundles (authored with Room memory) only with ?tv=<meta.tvId>, else they are absent / 404.
 import { GUID_RE } from "./memories.mjs";
+import { staticGate } from "./gate.mjs";
 import sampleMeta from "../games/sample/meta.json";
 import sampleTv from "../games/sample/tv.html"; // wrangler imports .html as text
 import sampleLobby from "../games/sample/lobby.html";
@@ -115,6 +116,14 @@ export function checkMeta(meta, id) {
   return e;
 }
 
+// The static pre-save gate (src/gate.mjs): its fails as error strings; its warns are logged.
+export function gateErrors(meta, html, lobby, where) {
+  if (typeof html !== "string" || !html.trim()) return [];
+  const g = staticGate({ html, meta, lobby });
+  if (g.warns.length) console.log(`gate ${where}: ${g.warns.length} warn(s) in ${g.ms} ms: ${g.warns.map((w) => `${w.code} ${w.msg}`).join(" | ").slice(0, 2000)}`);
+  return g.fails.map((f) => `gate ${f.code}: ${f.msg}`);
+}
+
 // PUT /games/:id {meta, html, lobby?}: publish a pre-built bundle over HTTP. Enabled only when the
 // PUBLISH_TOKEN var/secret is set, and the request must carry it in `x-publish-token`.
 async function publish(req, env, id) {
@@ -127,7 +136,9 @@ async function publish(req, env, id) {
   const errors = checkMeta(meta, id);
   if (typeof html !== "string" || !html.trim()) errors.push("html missing");
   if (lobby !== null) errors.push(...checkLobby(lobby));
-  if (errors.length) return cjson({ error: errors.join("; ") }, 400);
+  const gate = gateErrors(meta, html, lobby, `PUT /games/${id}`);
+  errors.push(...gate);
+  if (errors.length) return cjson({ error: errors.join("; "), ...(gate.length ? { gate } : {}) }, 400);
   const stored = await putGame(env, { ...meta, createdAt: meta.createdAt || new Date().toISOString() }, html, lobby);
   return cjson({ id, meta: stored });
 }

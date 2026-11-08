@@ -15,7 +15,7 @@
 // so a claim and a complete can never interleave their read-modify-write of a job.
 // Why a Durable Object alarm and not ctx.waitUntil: waitUntil is cut off 30 s after the response
 // is sent, and one attempt may take 90 s. An alarm handler gets 15 minutes of wall clock.
-import { SAMPLE, CORS, cjson, newId, putGame, checkMeta, checkLobby, ID_RE, MAX_PLAYERS } from "./games.mjs";
+import { SAMPLE, CORS, cjson, newId, putGame, checkMeta, checkLobby, gateErrors, ID_RE, MAX_PLAYERS } from "./games.mjs";
 
 const DEFAULT_BASE_URL = "https://api.fireworks.ai/inference/v1";
 const chatUrl = (env) => `${(env.AUTHOR_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "")}/chat/completions`;
@@ -50,6 +50,26 @@ These override anything in the request that conflicts with them.
 - Rounds are 30 to 90 s, ending on the timer or early when everyone has acted.
 - Big reveals happen on the TV with a spoken say line naming the players involved.
 - About 3 moments and 2 to 4 awards, each naming real players.
+
+# Game design rules (approved)
+These make the game funny and fair; follow them as strictly as the design rules.
+- The Room plays as one: run every input phase in parallel; when roles are fewer than players, give everyone else a scoring input and fold their answers into one collective player, "the Room", with its own score on the TV, addressed by that name.
+- Reveal one entry per beat: entries stay anonymous until the room has voted or guessed; then one entry per beat, 700 ms or more apart; the host says the entry in quotes, then names the author and who fell for it; the truth or the winner comes last. Recipe: build a list of beat functions (entry, author and fooled, truth last) and run them with later(i * 1800, beat). At 9 to 12 players reveal the top entries plus the funniest miss (about 8 beats, 40 s).
+- Pick a humour engine and write its id in meta.engine: H1 head-to-head blank, H2 multi-part combo, H3 lies hidden among a true fact, H4 misreading a bad artifact, H5 context swap, H6 word constraint, H7 bad tool, H8 punishment, H9 inversion prompt (ruin it, split the room), H10 prompts about the players, H11 calibration gap, H12 table talk under pressure. The mechanism makes the joke, not the players' wit. Prompts come from a canned pool plus ai additions and never repeat in a session.
+- Decoys score both ways: pay for finding the truth and for every player your decoy fools; reject a decoy that matches the truth (lowercase, strip punctuation) and ask again; bot_answer adds a house decoy at 2 to 3 players.
+- Constrain the tool: text maxLength 40 to 60, short timers, one colour, word banks, so clumsy output is the joke.
+- Everyone can still win: escalate values each round, keep knocked-out players scoring, post state.scores after each reveal, and end with a final round that changes the answer format or multiplies stakes. Never a random spin.
+- Memory is content: when the request carries a Room memory block, build at least one prompt or award from it ("Last time Bo froze. Write Bo's excuse."). Harvest one personal answer early and pay it off later. Structure stays identical for people with no history.
+- Chain authorship: route one player's output to another player as raw material (twist it, answer it blind) and credit both in the reveal.
+- Commit before context: ask an innocent question first, reveal what the answer is used for afterwards.
+- Vote-share points and a consolation: score round(100 * votes / voters) and pay the loser or the victim something, named by the host.
+- Side bets for non-authors: whoever is not authoring this beat bets on the winner, predicts a friend's pick or wagers confidence; it pays out in the reveal.
+- A side channel in every reveal and final beat: every phone gets something light to do (a like for the entry on screen, "who wrote this") that feeds an award such as "Room favourite". Never leave a phone on an info screen through a reveal.
+- Do not build a round where one player performs or decides while the others only watch: every other phone gets a scoring input.
+- Do not make comedy depend only on players being witty on demand: free text needs a transformation (pairing, recontext, decoy), never a bare "write something funny, vote funniest" loop.
+- Do not let reaction speed, dexterity or continuous control (pad, camera) decide outcomes: use deadline-bounded inputs.
+- Do not run rounds of two-way or true/false votes on the same material: give 3 or more options or a scale, and vary the input between rounds.
+- Spoken content is exempt from the 12-word say cap: quoted player text and game content (a player's answer, a riddle, a fact) do not count, but go in their own say beat, in double quotes; the reaction is the next beat.
 
 # Look and voice rules (non-negotiable)
 These set how the TV page looks and how the host talks.
@@ -152,7 +172,7 @@ Sensors: "gyro" sends orientation/motion readings at hz; "camera" sends a JPEG d
 - Keep it compact and readable (a few hundred lines at most). Never put three backticks inside the HTML.
 
 # meta.json
-{ "title": string, "description": string (one or two sentences a TV agent can read aloud), "hook": string (one sentence naming the game's world), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number (at most 16), "palette": "Noir" | "Broadcast" | "Paper" | "Arcade" | "Campfire" | "Lagoon", "seats": { "name": string, "svg": string }[] (6 to 12 seat icons, see "Roster seats"), "lobby": boolean (set by the server) }
+{ "title": string, "description": string (one or two sentences a TV agent can read aloud), "hook": string (one sentence naming the game's world), "engine": "H1".."H12" (the humour engine, see "Game design rules"), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number (at most 16), "palette": "Noir" | "Broadcast" | "Paper" | "Arcade" | "Campfire" | "Lagoon", "seats": { "name": string, "svg": string }[] (6 to 12 seat icons, see "Roster seats"), "lobby": boolean (set by the server) }
 - meta.phonesRequired (optional, default true): set false only for camera-only games that must start with nobody joined; phones then stay optional for names and bets.
 Do not include id, createdAt, prompt or lobby; the server adds them (lobby is true when you send the lobby card).
 
@@ -312,6 +332,7 @@ async function author(env, prompt, context, onAttempt = () => {}) {
     minPlayers: gen.minPlayers, maxPlayers: Math.min(MAX_PLAYERS, gen.maxPlayers ?? Math.max(gen.minPlayers, 12)),
     ...(typeof gen.palette === "string" ? { palette: gen.palette } : {}),
     ...(typeof gen.hook === "string" && gen.hook.trim() ? { hook: gen.hook.trim().slice(0, 200) } : {}),
+    ...(typeof gen.engine === "string" && /^H([1-9]|1[0-2])$/.test(gen.engine.trim()) ? { engine: gen.engine.trim() } : {}),
     ...(Array.isArray(gen.seats) ? { seats: gen.seats.filter((x) => x && typeof x.name === "string" && typeof x.svg === "string").slice(0, 12) } : {}),
     ...base,
   };
@@ -439,7 +460,9 @@ async function queueOp(env, op, body) {
       const errors = checkMeta(body.meta, id);
       if (typeof body.html !== "string" || !body.html.trim()) errors.push("html missing");
       if (lobby !== null) errors.push(...checkLobby(lobby));
-      if (errors.length) return { status: 400, body: { error: errors.join("; ") } };
+      const gate = gateErrors(body.meta, body.html, lobby, `complete ${job.jobId}`);
+      errors.push(...gate);
+      if (errors.length) return { status: 400, body: { error: errors.join("; "), ...(gate.length ? { gate } : {}) } };
       meta = await putGame(env, { ...body.meta, createdAt: body.meta.createdAt || stamp(), prompt: body.meta.prompt ?? job.prompt }, body.html, lobby);
     } else if (lobby !== null) {
       return { status: 400, body: { error: "lobby needs html inline: send { id, meta, html, lobby }" } };

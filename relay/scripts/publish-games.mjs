@@ -6,16 +6,20 @@
 //   node scripts/publish-games.mjs --local --persist-to DIR
 //   node scripts/publish-games.mjs --url http://127.0.0.1:8787   # PUT /games/:id, needs PUBLISH_TOKEN
 //   node scripts/publish-games.mjs whos-the-bot    # only the named bundles
+//   node scripts/publish-games.mjs --force         # publish even when the static gate fails
 //
 // meta.json is validated (id = directory name; title, description, phases, minPlayers present);
 // createdAt is set from the file's mtime when missing; meta.lobby is set from whether lobby.html exists;
-// other fields are kept as written. The smoke harness is not run here.
+// other fields are kept as written. The smoke harness is not run here; the static pre-save gate
+// (src/gate.mjs, the same one the Worker runs) is: its warns are printed, its fails refuse the bundle
+// unless --force.
 // Hand-built bundles are global (PLAN.md "Game scope"): a meta declaring scope "tv" is refused.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { staticGate } from "../src/gate.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gamesDir = path.join(root, "games");
@@ -24,12 +28,13 @@ const BUCKET = "little-redwood-games";
 const MAX_PLAYERS = 16; // same as src/games.mjs; a hand-built maxPlayers above it is clamped (and logged), not refused
 
 const args = process.argv.slice(2);
-const opt = { local: false, persistTo: null, url: null, only: [] };
+const opt = { local: false, persistTo: null, url: null, only: [], force: false };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === "--local") opt.local = true;
   else if (a === "--persist-to") opt.persistTo = args[++i];
   else if (a === "--url") opt.url = args[++i]?.replace(/\/$/, "");
+  else if (a === "--force") opt.force = true;
   else if (a.startsWith("-")) { console.error(`unknown flag ${a}`); process.exit(2); }
   else opt.only.push(a);
 }
@@ -78,6 +83,10 @@ try {
       const lobby = fs.existsSync(lobbyPath) ? fs.readFileSync(lobbyPath, "utf8") : null;
       if (lobby !== null && !lobby.trim()) throw new Error("lobby.html is empty");
       meta.lobby = lobby !== null;
+      const g = staticGate({ html, meta, lobby });
+      for (const w of g.warns) console.log(`${id}: gate warn ${w.code}: ${w.msg}`);
+      for (const f of g.fails) console.error(`${id}: gate FAIL ${f.code}: ${f.msg}`);
+      if (g.fails.length && !opt.force) throw new Error(`static gate: ${g.fails.length} fail(s) (${g.fails.map((f) => f.code).join(", ")}); fix them or pass --force`);
       if (opt.url) {
         const res = await fetch(`${opt.url}/games/${id}`, {
           method: "PUT", headers: { "content-type": "application/json", "x-publish-token": process.env.PUBLISH_TOKEN },

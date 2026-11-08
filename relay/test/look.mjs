@@ -77,7 +77,8 @@ expect(run("three emoji fail", { tv: TV.replace("<script>", "<script>\n// ✨\u{
 expect(run("text glyphs are not emoji", { tv: TV.replace("<script>", "<script>\n// ● ▲ ★ ✓ × →") }), true, /emoji 0/, "glyphs");
 expect(run("long say fails", { tv: say("Game over everyone, thank you so much for playing this lovely little game tonight.") }),
   false, /say line of 14 words/, "14-word say");
-expect(run("names not counted", { tv: say("Ada, Bo, Cy and Dee's team: thank you all for playing tonight, really, truly, friends.") }),
+// Names come from the room at runtime (a literal name list would trip the static gate's S13).
+expect(run("names not counted", { tv: TV.replace("function startRound(i) {", "function startRound(i) {\n  send({ type: \"say\", text: `${and(active().map((p) => p.name))}'s team: thank you all for playing tonight, really, truly, friends.` });") }),
   true, /longest say 11 words/, "names excluded");
 expect(run("double exclamation warns", { tv: say("Round on! Well played!") }), true, /warn: \[ai-ok\] say line with 2 exclamation marks/, "!!");
 expect(run("unknown palette fails", { meta: { ...META, palette: "Purple" } }), false, /meta\.palette "Purple" is not one of/, "bad palette");

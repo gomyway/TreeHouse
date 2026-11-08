@@ -12,6 +12,7 @@
   "minPlayers": 1,
   "maxPlayers": 16,
   "palette": "Broadcast",
+  "engine": "H10",
   "seats": [
     {
       "name": "Microphone",

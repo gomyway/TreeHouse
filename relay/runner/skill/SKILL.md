@@ -48,6 +48,70 @@ These override anything in TASK.md that conflicts with them. `reference/whos-the
 
 The harness fails a game that leaves any joined player without an actionable screen.
 
+## Game design rules (approved)
+
+Nelson approved these (DP-01 to DP-17, research/jackbox/analysis/design-points.json). They say what
+makes the game funny and fair; the harness checks the ones marked "Harness".
+
+- **The Room plays as one (DP-01).** Run every input phase in parallel. When roles are fewer than
+  players, give everyone else a scoring input and fold their answers into one collective player,
+  "the Room", with its own score on the TV; the host addresses it by that name.
+- **Reveal one entry per beat (DP-02, DP-07).** Entries stay anonymous until the room has voted or
+  guessed. Then one entry per beat, 700 ms or more apart: the host `say`s the entry, then names the
+  author and who fell for it, the truth or the winner last. At 9 to 12 players reveal the top entries
+  plus the funniest miss (about 8 beats, 40 s). Harness: a reveal phase (`reveal`, `result`,
+  `answer`, `score` in its name) that adds 3 or more entries in one go fails.
+
+  ```js
+  const beats = entries.map((e) => () => { show(e); send({ type: "say", text: `"${e.text}"` }); });
+  beats.push(...entries.map((e) => () => send({ type: "say", text: `${nameOf(e.author)} wrote it. ${and(e.fooled.map(nameOf))} fell for it.` })));
+  beats.push(() => { showTruth(); send({ type: "say", text: `The truth: "${truth}"` }); });
+  beats.forEach((b, i) => later(i * 1800, b)); // one beat at a time, >= 700 ms apart, truth last
+  ```
+- **Pick a humour engine (DP-03).** The mechanism makes the joke, not the players' wit. Pick one and
+  write its id in `meta.engine` (harness: missing or not H1..H12 fails):
+  H1 head-to-head blank, H2 multi-part combo, H3 lies hidden among a true fact, H4 misreading a bad
+  artifact, H5 context swap, H6 word constraint, H7 bad tool, H8 punishment, H9 inversion prompt
+  (ruin it, split the room), H10 prompts about the players, H11 calibration gap, H12 table talk
+  under pressure. Prompts come from a canned pool plus `ai` additions and never repeat in a session.
+- **Decoys score both ways (DP-04).** When players write decoys, pay for finding the truth and for
+  every player your decoy fools. Reject a decoy that matches the truth (lowercase, strip punctuation)
+  and ask again; `bot_answer` adds a house decoy at 2 to 3 players.
+- **Constrain the tool (DP-05).** Text `maxLength` 40 to 60, short timers, one colour, word banks:
+  clumsy output is the joke and skill does not decide the winner. Harness: maxLength above 80 warns.
+- **Everyone can still win (DP-06).** Escalate values each round, keep knocked-out players scoring,
+  post `state.scores` after each reveal, and end with a final round that changes the answer format
+  (one prompt for all, pick your favourite earlier answer) or multiplies stakes. Never a random spin.
+- **Memory is content (DP-08).** When TASK.md has a Room memory block, build at least one prompt or
+  award from it ("Last time Bo froze. Write Bo's excuse."; "defend your title"). Harvest one personal
+  answer early and pay it off later. Structure stays identical for people with no history.
+- **Chain authorship (DP-09).** Route one player's output to another player as raw material (twist
+  it, answer it blind, combine it) and credit both in the reveal.
+- **Commit before context (DP-10).** Ask an innocent question first; reveal what the answer is used
+  for (the real prompt, the partner's half) afterwards.
+- **Vote-share points and a consolation (DP-11).** Score `round(100 * votes / voters)`; pay the loser
+  or the victim something ("Ana, you lost, but you were the material").
+- **Side bets for non-authors (DP-12).** Whoever is not authoring this beat bets on the winner,
+  predicts a friend's pick or wagers confidence; it pays out in the reveal, named by the host.
+- **A side channel in every reveal (DP-13).** During each reveal and final beat every phone has
+  something light to do: a like for the entry on screen, "who wrote this", nominate for an award. It
+  feeds an award ("Room favourite"). Harness: an info-only phone held over 15 s while the TV is in a
+  reveal or final phase fails.
+- **Do not (DP-14).** One player performs or decides while the others only watch or thumb-vote.
+  The spotlight is fine; idle is not: every other phone gets a scoring input.
+- **Do not (DP-15).** Make comedy depend only on players being witty on demand. Free text needs a
+  transformation (pairing, recontext, decoy); a bare "write something funny, vote funniest" loop fails.
+- **Do not (DP-16).** Let reaction speed, dexterity or continuous control (`pad`, camera) decide
+  outcomes. Use deadline-bounded inputs; speed is at most a small bonus on TV receipt time.
+- **Do not (DP-17).** Run rounds of two-way votes or true/false on the same material. Give 3 or more
+  options or a scale, and vary the input between rounds. Harness: 3 two-option screens in a row warn.
+- **Spoken content is exempt from the 12-word cap.** Quoted player text and game content (a player's
+  answer, a riddle, a fact) do not count toward the `say` cap, but go in their own `say` beat, in
+  double quotes: `` say(`"${answer}"`) ``, then the reaction as the next beat.
+
+The static gate (`src/gate.mjs`) runs first in the harness and again when the Worker saves the
+bundle; the same failures come back as 400s, so fix every `gate` line.
+
 ## Look and voice rules (non-negotiable)
 
 These set how the TV page looks and how the host talks. The harness checks them and prints a `look` line.
@@ -175,8 +239,8 @@ or keeps the same `data-status` text when `ready` changes. The look checks run o
 1. Read `TASK.md`, `skill/CONTRACT.md` and `reference/sample.html`.
 2. Decide the game in a few lines: phases, who holds which role each round and what every other
    player does meanwhile, what each phone shows per phase, how scoring works, how a round ends
-   (timer AND everyone answered), what the TV shows from 3 m away, which palette fits the theme.
-3. Write `meta.json` (with `palette`, `hook` and `seats`) and `tv.html` in the job directory (not in `reference/`), then `lobby.html` (see "Lobby card"). Build the game
+   (timer AND everyone answered), what the TV shows from 3 m away, which palette fits the theme, which humour engine (H1..H12) makes it funny, how the reveal runs beat by beat.
+3. Write `meta.json` (with `palette`, `hook`, `engine` and `seats`) and `tv.html` in the job directory (not in `reference/`), then `lobby.html` (see "Lobby card"). Build the game
    TASK.md asks for, with every feature it names; the reference shows the bridge and the TV
    sizing, it is not a template to reskin. Write `tv.html` whole in one go, then fix it with edits.
 4. Run `node harness/smoke.mjs`. It prints `SMOKE PASS` or `SMOKE FAIL` with reasons.
@@ -201,6 +265,10 @@ sizes, radii, emoji, `say` length) and the roster seats (a seat per joined playe
 of TV states, `meta.seats`, the answered state); it prints one static `look` line and one per pass. Its `participation` line
 shows how many actionable screens each player got.
 `node harness/smoke.mjs --verbose` prints every message both ways.
+Before the play-through it runs the static gate (`harness/gate.mjs`, a `gate:` line): the same
+checks the server runs before saving the bundle, so a `gate S..` failure would also be refused at
+publish. The design checks from "Game design rules (approved)" run in the play-through: reveal beats,
+idle info screens during reveals, `meta.engine`, text `maxLength` and runs of two-option screens.
 
 ## Hard rules (also in CONTRACT.md)
 

@@ -66,11 +66,26 @@
 //   (16 players, maxPlayers 16): FAIL unless all 16 names are shown and all 16 have a [data-player] seat.
 //   jsdom does no layout, so whether the card scrolls or overflows is not measured.
 //
+// Static gate (src/gate.mjs, the same checks the Worker runs before saving): runs first and prints a
+// "gate:" line; its fails FAIL the harness (kept apart so the play-through still runs), its warns warn.
+// Design rules (SKILL.md "Game design rules (approved)"):
+//   FAIL  meta.engine missing or not one of H1..H12 (DP-03).
+//   FAIL  a reveal phase (name matching /reveal|result|answer|score/) that shows 3 or more of the texts the
+//         harness typed adds them all in one go: fewer than 2 moments 500 ms or more apart (game time) in
+//         which DOM additions carry a typed entry (DP-02: one entry per beat).
+//   FAIL  a phone kept on an info-only screen for more than 15 s game time while the TV is in a reveal or
+//         final phase (/reveal|result|answer|score|final/): give it a side channel (DP-13).
+//   WARN  a text screen whose maxLength is above 80 (absent counts as the phone's 140) (DP-05).
+//   WARN  3 or more consecutive actionable screens to one player that are 2-option buttons (DP-17).
+// say lines: text inside double quotes ("…" or “…”) and the strings the harness typed are spoken content
+// (a player's answer, a riddle) and do not count toward the 12 words.
+//
 // Exit 0 and a final "SMOKE PASS" line when everything holds; exit 1 and "SMOKE FAIL" otherwise.
 
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // jsdom is resolved with require() so NODE_PATH works (the Docker image installs it globally).
 const require = createRequire(import.meta.url);
@@ -111,6 +126,7 @@ const GAME_TYPES = new Set(["screen", "ask", "play", "say", "state", "done", "ai
 const failures = [];
 const warnings = [];
 const fail = (s) => failures.push(s);
+const gateFails = []; // static gate and design fails: reported, but the play-through still runs
 const warn = (s) => { if (!warnings.includes(s)) warnings.push(s); };
 const log = (...a) => console.log(...a);
 
@@ -129,6 +145,7 @@ if (meta) {
   if (!Array.isArray(meta.phases) || !meta.phases.length || !meta.phases.every((p) => typeof p === "string")) fail("meta.phases must be a non-empty array of strings");
   if (!Number.isInteger(meta.minPlayers) || meta.minPlayers < 1) fail("meta.minPlayers must be an integer >= 1");
   if (!Number.isInteger(meta.maxPlayers) || meta.maxPlayers < (meta.minPlayers ?? 1) || meta.maxPlayers > 16) fail(`meta.maxPlayers must be an integer with minPlayers <= maxPlayers <= 16 (got ${JSON.stringify(meta.maxPlayers)})`);
+  if (typeof meta.engine !== "string" || !/^H([1-9]|1[0-2])$/.test(meta.engine)) gateFails.push(`meta.engine must name the humour engine, one of H1..H12 (SKILL.md "Game design rules (approved)"; got ${JSON.stringify(meta.engine)})`);
   if (Number.isInteger(meta.minPlayers) && meta.minPlayers > 3) warn(`meta.minPlayers is ${meta.minPlayers}; the harness plays with 3`);
 }
 if (!existsSync(htmlPath)) fail(`tv.html not found at ${htmlPath}`);
@@ -151,6 +168,20 @@ if (html) {
   if (!/addEventListener\(\s*["']message["']|onmessage\s*=/.test(html)) fail("tv.html never listens for message events");
   if (!/["'`]init["'`]/.test(html)) fail('tv.html does not handle the "init" message');
   if (html.length > 200_000) warn(`tv.html is ${Math.round(html.length / 1024)} KB; keep it compact`);
+}
+
+// ---------- static gate (src/gate.mjs; a copy sits beside this file in a job directory) ----------
+{
+  const here = dirname(fileURLToPath(import.meta.url));
+  const gatePath = [join(here, "gate.mjs"), join(here, "..", "..", "src", "gate.mjs")].find((p) => existsSync(p));
+  if (!gatePath) warn("static gate not found (harness/gate.mjs); skipped");
+  else if (meta && html !== null) {
+    const { staticGate } = await import(pathToFileURL(gatePath).href);
+    const g = staticGate({ html, meta, lobby: existsSync(lobbyPath) ? readFileSync(lobbyPath, "utf8") : null });
+    log(`gate: ${g.ok ? "ok" : `${g.fails.length} fail(s)`}, ${g.warns.length} warn(s), ${g.ms} ms`);
+    for (const f of g.fails) gateFails.push(`gate ${f.code}: ${f.msg}`);
+    for (const w of g.warns) if (w.code !== "L0") warn(`gate ${w.code}: ${w.msg}`);
+  }
 }
 
 // ---------- look checks (SKILL.md "Look and voice rules") ----------
@@ -305,10 +336,12 @@ function analyzeLook(src, meta, sink = { fails: lookFails, warns: lookWarns }, f
 // Player names are not counted: the design rules require naming the players, and a list of them
 // grows with the room (2 to 12), so the 12-word budget is for everything else.
 const NAMES = new Set([...PLAYERS, LATE].map((p) => p.name.toLowerCase()));
+// Spoken content is exempt: text in double quotes and any string the harness typed (a player's answer).
+const spokenContent = (t) => TEXTS.reduce((s, x) => s.split(x).join(" "), t.replace(/"[^"]*"|“[^”]*”/g, " "));
 const sayVerdict = (texts, pfail, pwarn) => {
   let longest = { n: 0, text: "" };
   for (const t of texts) {
-    const n = t.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w) && !NAMES.has(w.replace(/('s)?[^\p{L}\p{N}]*$/u, "").replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase())).length;
+    const n = spokenContent(t).split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w) && !NAMES.has(w.replace(/('s)?[^\p{L}\p{N}]*$/u, "").replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase())).length;
     if (n > longest.n) longest = { n, text: t };
     if (n > 12) pfail(`say line of ${n} words, player names not counted (max 12): "${t.slice(0, 120)}"`);
     if ((t.match(/!/g) ?? []).length >= 2) pwarn(`say line with ${(t.match(/!/g) ?? []).length} exclamation marks (max 1): "${t.slice(0, 120)}"`);
@@ -345,6 +378,25 @@ function runPass(aiOk) {
     const seatStates = new Map();           // "phase|summary" -> every joined player had a [data-player] seat
     const answeredIds = new Set(), answeredSeen = new Set();
     let lateIn = false, seatOnPhone = false;
+    // Design rules: reveal beats (DP-02), idle info screens in reveals (DP-13), two-option runs (DP-17).
+    const REVEAL_RE = /reveal|result|answer|score/i, IDLE_RE = /reveal|result|answer|score|final/i;
+    const gameNow = () => (Date.now() - realStart) * SPEED;
+    let typedSeq = 0, revealSeq = 0, phaseAt = 0;
+    const typed = new Set();
+    const reveals = new Map();              // reveal instance -> { phase, entries: Set, times: [] }
+    const phoneNow = new Map();             // pid -> { info: boolean, since }
+    let idleWorst = null;                   // { pid, ms, phase }
+    const binRun = new Map();               // pid -> consecutive 2-option button screens
+    let binWarned = false;
+    const noteIdle = () => {
+      if (!phase || !IDLE_RE.test(phase)) return;
+      const t = gameNow();
+      for (const [pid, p] of phoneNow) {
+        if (!p.info) continue;
+        const ms = t - Math.max(p.since, phaseAt);
+        if (ms > 15000 && (!idleWorst || ms > idleWorst.ms)) idleWorst = { pid, ms, phase };
+      }
+    };
 
     const vc = new VirtualConsole();
     vc.on("jsdomError", (e) => {
@@ -385,6 +437,9 @@ function runPass(aiOk) {
       if (seenScreen.get(pid) === key) return;
       seenScreen.set(pid, key);
       if (!isActionable(screen)) return;
+      const two = screen.kind === "buttons" && Array.isArray(screen.items) && screen.items.length === 2;
+      binRun.set(pid, two ? (binRun.get(pid) ?? 0) + 1 : 0);
+      if (two && binRun.get(pid) >= 3 && !binWarned) { binWarned = true; pwarn(`${binRun.get(pid)} two-option button screens in a row to one player: give 3 or more options or a scale and vary the input between rounds (DP-17)`); }
       if (!firstInputAt) {
         // The round's phase: whatever state the game posts in the same turn as this screen.
         firstInputAt = Date.now();
@@ -402,7 +457,9 @@ function runPass(aiOk) {
         if (!Array.isArray(screen.items) || !screen.items.length) return;
         send({ kind: "button", id: String(screen.items[0].id) }, rnd(80, 400));
       } else if (screen.kind === "text") {
-        send({ kind: "text", text: TEXTS[rnd(0, TEXTS.length)] }, rnd(100, 500));
+        const text = TEXTS[typedSeq++ % TEXTS.length];
+        typed.add(text);
+        send({ kind: "text", text }, rnd(100, 500));
       } else if (screen.kind === "pad") {
         for (let i = 0; i < 20; i++) timers.push(setTimeout(() => { if (!finished && seenScreen.get(pid) === key) deliver({ type: "input", player: pid, data: { kind: "pad", x: Math.sin(i / 3), y: Math.cos(i / 3) } }, 0); }, 50 * i));
         stats.inputs++; answered.set(pid, (answered.get(pid) ?? 0) + 1); afterInput = { state: 0, screen: 0 };
@@ -442,7 +499,11 @@ function runPass(aiOk) {
           if (typeof m.phase !== "string") pfail("state.phase must be a string");
           else {
             if (meta && Array.isArray(meta.phases) && !meta.phases.includes(m.phase)) pwarn(`state.phase "${m.phase}" is not in meta.phases`);
-            if (m.phase !== phase) { phase = m.phase; phaseEntries.set(phase, (phaseEntries.get(phase) ?? 0) + 1); }
+            if (m.phase !== phase) {
+              noteIdle();
+              phase = m.phase; phaseEntries.set(phase, (phaseEntries.get(phase) ?? 0) + 1); phaseAt = gameNow();
+              if (REVEAL_RE.test(phase)) reveals.set(++revealSeq, { phase, entries: new Set(), times: [] });
+            }
             const key = m.phase + "|" + m.summary;
             if (!seatStates.has(key)) { seatStates.set(key, false); timers.push(setTimeout(() => sampleSeats(key), 0)); } // after the game's render
           }
@@ -468,6 +529,13 @@ function runPass(aiOk) {
               const looksNamed = labels.filter((l) => /^\p{Lu}\p{Ll}+( \p{Lu}\p{Ll}+){1,2}$/u.test(l) && !NAME_RES.some((re) => re.test(l)));
               if (looksNamed.length >= 2 && !labels.some((l) => NAME_RES.some((re) => re.test(l)))) for (const l of looksNamed) npcNames.add(l);
             }
+          }
+          if (m.screen.kind === "text" && (Number(m.screen.maxLength) || 140) > 80) pwarn(`text screen allows ${Number(m.screen.maxLength) || "the default 140"} characters: keep it 40 to 60 (DP-05, over 80 warns)`);
+          noteIdle();
+          for (const pid of targets) {
+            const info = !isActionable(m.screen);
+            const prev = phoneNow.get(pid);
+            if (!prev || prev.info !== info || !info) phoneNow.set(pid, { info, since: gameNow() });
           }
           for (const pid of targets) if (PLAYERS.some((p) => p.id === pid) || pid === LATE.id) answerScreen(pid, m.screen);
           break;
@@ -586,6 +654,21 @@ function runPass(aiOk) {
       new window.MutationObserver((records) => { for (const r of records) r.type === "attributes" ? noteAnswered(r.target) : r.addedNodes.forEach(noteAnswered); })
         .observe(window.document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-state", "data-player"] });
     } catch (e) { pwarn(`harness: could not watch seat states (${e.message})`); }
+    try {
+      new window.MutationObserver((records) => {
+        const r = reveals.get(revealSeq);
+        if (!r || phase !== r.phase || !typed.size) return;
+        let hit = false;
+        for (const rec of records) {
+          const nodes = rec.type === "characterData" ? [rec.target] : [...rec.addedNodes];
+          for (const n of nodes) {
+            const text = n.textContent ?? "";
+            for (const x of typed) if (text.includes(x)) { r.entries.add(x); hit = true; }
+          }
+        }
+        if (hit) r.times.push(gameNow());
+      }).observe(window.document, { subtree: true, childList: true, characterData: true });
+    } catch (e) { pwarn(`harness: could not watch reveal beats (${e.message})`); }
 
     function finish(why) {
       if (finished) return;
@@ -618,6 +701,16 @@ function runPass(aiOk) {
         phonesOptional ? pwarn(s) : pfail(s);
       }
       const longestSay = sayVerdict(says, pfail, pwarn);
+      // DP-02: a reveal with 3+ typed entries needs at least 2 beats 500 ms (game time) apart.
+      for (const r of reveals.values()) {
+        if (r.entries.size < 3) continue;
+        let beats = 0, last = -Infinity;
+        for (const t of r.times) if (t - last >= 500) { beats++; last = t; }
+        if (beats < 2) { pfail(`reveal phase "${r.phase}" shows ${r.entries.size} entries in one go: reveal one entry per beat, 700 ms or more apart, anonymous until the room has committed (DP-02)`); break; }
+      }
+      // DP-13: an info-only phone during a reveal or final beat.
+      noteIdle();
+      if (idleWorst) pfail(`${[...PLAYERS, LATE].find((p) => p.id === idleWorst.pid)?.name ?? idleWorst.pid} sat on an info screen for ${Math.round(idleWorst.ms / 1000)} s during "${idleWorst.phase}": give every phone a side channel during reveals (a like, "who wrote this") that feeds an award (DP-13)`);
       // Roster seats.
       const sampled = [...seatStates.values()], seated = sampled.filter(Boolean).length;
       const seatPct = sampled.length ? Math.round((100 * seated) / sampled.length) : 0;
@@ -871,6 +964,7 @@ for (const p of passes) {
   for (const f of p.pf) failures.push(`[${p.tag}] ${f}`);
   for (const w of p.pw) warn(`[${p.tag}] ${w}`);
 }
+failures.push(...gateFails);
 for (const f of lookFails) failures.push(`look: ${f}`);
 for (const w of lookWarns) warn(`look: ${w}`);
 failures.push(...lobbyFails);

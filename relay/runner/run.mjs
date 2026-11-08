@@ -147,6 +147,7 @@ async function prepareJobDir(job, log) {
   cpSync(join(HERE, "skill"), join(dir, "skill"), { recursive: true });
   mkdirSync(join(dir, "harness"), { recursive: true });
   cpSync(join(HERE, "harness", "smoke.mjs"), join(dir, "harness", "smoke.mjs"));
+  cpSync(join(HERE, "..", "src", "gate.mjs"), join(dir, "harness", "gate.mjs")); // the static gate the harness runs first
   const sample = await getReference("sample");
   writeFileSync(join(dir, "reference", "sample.html"), sample.tv);
   writeFileSync(join(dir, "reference", "sample.meta.json"), sample.meta);

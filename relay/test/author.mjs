@@ -197,6 +197,10 @@ if (res.status !== 400 || !/lobby needs html inline/.test((await res.json()).err
 res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid, maxPlayers: 17 }, html: sample.html });
 if (res.status !== 400 || !/maxPlayers/.test((await res.json()).error)) fail(`complete with maxPlayers 17 should 400, got ${res.status}`);
 ok("complete rejects a lobby that loads a script, a lobby without inline html, and maxPlayers 17 → 400 (the job stays running)");
+res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid, engine: "H13" }, html: sample.html, lobby: sample.lobby });
+{ const b = await res.json();
+  if (res.status !== 400 || !/gate S6: meta\.engine "H13" must be one of H1\.\.H12/.test(b.error)) fail(`complete with engine H13 should 400 from the gate, got ${res.status} ${JSON.stringify(b).slice(0, 300)}`); }
+ok("complete with a bundle the static gate fails (meta.engine H13) → 400 listing gate S6");
 res = await post(`/author/${jobA}/complete`, { id: gid, meta: { ...sample.meta, id: gid, title: "Runner game", lobby: false }, html: sample.html, lobby: sample.lobby, runner: "mac" });
 if (res.status !== 200) fail(`complete inline ${res.status} ${await res.text()}`);
 st = await jobState(jobA);

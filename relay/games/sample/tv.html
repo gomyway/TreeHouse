@@ -131,6 +131,7 @@ function endRound() {
   const what = picks.size === 0 ? "Nobody picked." : side === null ? `A tie, ${nA} each.` : `${side === "a" ? r.a : r.b} wins, ${Math.max(nA, nB)} to ${Math.min(nA, nB)}.`;
   const who = winners.length ? ` A point for ${and(winners.map(nameOf))}.` : "";
   send({ type: "say", text: what + who });
+  if (winners.length) send({ type: "moment", kind: "win", title: `${and(winners.map(nameOf))} read the room`, caption: what, players: winners.map(nameOf) });
   for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
   postState(`Round ${round + 1} result: ${what}${who}`);
   render({ nA, nB, side, what, who });
@@ -144,6 +145,7 @@ function finish() {
   const champs = ranked.filter((p) => (scores.get(p.id) ?? 0) === top && top > 0).map((p) => p.name);
   const line = champs.length ? `${and(champs)} ${champs.length > 1 ? "win" : "wins"} with ${pts(top)}!` : "No winner this time.";
   send({ type: "say", text: "Game over. " + line });
+  if (champs.length) send({ type: "moment", kind: "award", title: "Reads the Room", caption: line, players: champs });
   for (const p of active()) send({ type: "screen", to: p.id, screen: screenFor(p.id) });
   postState("Game over. " + line);
   render({ ranked, line });
