@@ -1,4 +1,4 @@
-// The Little Redwood pitch deck, presented on the TV by the TV app itself.
+// The Treehouse pitch deck, presented on the TV by the TV app itself.
 // Slides are the same files as the shared Slides artifact (tv/src/deck/slides/*.html: one
 // <section> each, inline styles, a 1920x1080 canvas). The few deck-only tags become plain HTML
 // here: <x-icon> → an emoji, <x-shape kind="arrow-*"> → an arrow glyph; the <aside> speaker notes

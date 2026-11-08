@@ -287,11 +287,11 @@ function sag(n: number, i: number) {
 
 /** The room as a couch: round seats on the cushions, empty ones inviting people to join. */
 function Couch({ players, seats, gameKey }: { players: Player[]; seats: ReturnType<typeof validSeats>; gameKey: string }) {
-  const MAX = 8;
+  const MAX = 16; // the relay room cap
   const shown = players.slice(0, MAX);
   const slots = Math.min(MAX, Math.max(4, shown.length + (shown.length < MAX ? 1 : 0)));
   // One couch seats four; a fifth player brings out a second couch.
-  const rows = slots > 4 ? [4, slots - 4] : [slots];
+  const rows = Array.from({ length: Math.ceil(slots / 4) }, (_, r) => Math.min(4, slots - r * 4));
   let k = 0;
   return (
     <div className={`couch couches-${rows.length}`}>
