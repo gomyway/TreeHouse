@@ -1,0 +1,42 @@
+{
+  "_note": "pi models override for the authoring runner (mounted when AUTHOR_PI_MODELS is set). Provider stays OpenRouter; these ids are pinned to Cerebras only, no fallbacks. Use AUTHOR_PROVIDER=openrouter with AUTHOR_MODEL=qwen/qwen3.8-27b or openai/gpt-oss-120b.",
+  "providers": {
+    "openrouter": {
+      "modelOverrides": {
+        "openai/gpt-oss-120b": {
+          "name": "gpt-oss-120b (Cerebras only)",
+          "contextWindow": 131072,
+          "maxTokens": 32000,
+          "compat": {
+            "openRouterRouting": {
+              "only": [
+                "cerebras"
+              ],
+              "allow_fallbacks": false
+            }
+          }
+        }
+      },
+      "models": [
+        {
+          "id": "qwen/qwen3.8-27b",
+          "name": "Qwen 3.8 27B (Cerebras only)",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 65536,
+          "maxTokens": 16000,
+          "compat": {
+            "openRouterRouting": {
+              "only": [
+                "cerebras"
+              ],
+              "allow_fallbacks": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

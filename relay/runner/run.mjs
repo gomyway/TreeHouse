@@ -17,6 +17,7 @@
 //   AUTHOR_MODEL    default accounts/fireworks/models/gpt-oss-120b
 //   AUTHOR_THINKING default low
 //   AUTHOR_IMAGE    default little-redwood-author
+//   AUTHOR_PI_MODELS  optional path to a pi models.json mounted into the container (custom providers/models, e.g. runner/pi-models.json)
 //   AUTHOR_TIMEOUT_S  agent wall clock, default 660 (the full rule set needs 5-9 min of decode)
 
 import { spawn, spawnSync } from "node:child_process";
@@ -169,7 +170,7 @@ async function prepareJobDir(job, log) {
   return dir;
 }
 
-function runAgent(dir, log, onTick) {
+function runAgent(dir, log, onTick, continuation = null) {
   return new Promise((resolveRun) => {
     const name = `lr-author-${dir.split("/").pop().replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 40)}-${Date.now() % 100000}`;
   const task = "You are building a party game bundle in /job for the people in the room. Read /job/TASK.md, then /job/skill/SKILL.md (its Design rules are non-negotiable), /job/skill/CONTRACT.md, /job/reference/sample.html and /job/reference/sample.lobby.html; read /job/reference/whos-the-bot.html for how to tier roles only: it predates the look and voice rules, so never copy its styling, weights, emoji or long say lines; /job/reference/sample.html is the look reference. " +
@@ -179,12 +180,13 @@ function runAgent(dir, log, onTick) {
     const args = ["run", "--rm", "--name", name,
       "--memory", "2g", "--cpus", "2",
       "-v", `${dir}:/job`, "-w", "/job",
+      ...(process.env.AUTHOR_PI_MODELS ? ["-v", `${process.env.AUTHOR_PI_MODELS}:/home/node/.pi/agent/models.json:ro`] : []),
       "-e", KEY_NAME,
       IMAGE,
       "pi", "-p", "--mode", "json", "--no-session", "--offline", "--no-context-files",
       "--skill", "/job/skill",
       "--provider", PROVIDER, "--model", MODEL, "--thinking", THINKING,
-      task];
+      continuation ? `${task}\n\n${continuation}` : task];
     log(`docker ${args.slice(0, -1).join(" ")} "<task>"`);
     const t0 = Date.now();
     const child = spawn("docker", args, { env: { ...process.env, [KEY_NAME]: API_KEY }, stdio: ["ignore", "pipe", "pipe"] });
@@ -267,13 +269,23 @@ async function runJob(job) {
     } else {
       if (!API_KEY) throw new Error(`${KEY_NAME} is not set (env or relay/.dev.vars)`);
       await progress(`agent started (${MODEL.split("/").pop()}, thinking ${THINKING})`);
-      const run = await runAgent(dir, log, (s, t) => {
-        const wrote = existsSync(join(dir, "tv.html")) ? `, tv.html ${Math.round(statSync(join(dir, "tv.html")).size / 1024)} KB` : "";
-        progress(`agent working, ${s} s, ${t.tools} tool calls${wrote}${t.smoke ? `, last smoke ${t.smoke}` : ""}`);
-      });
-      const t = run.tally;
-      await progress(run.timedOut ? `agent timed out after ${run.seconds} s (${t.tools} tool calls)`
-        : `agent finished in ${run.seconds} s (exit ${run.code}, ${t.tools} tool calls${t.error ? `, model error: ${t.error.slice(0, 160)}` : ""})`);
+      // Some models (gpt-oss on fast hosts) end a turn after reasoning without a tool call, so the agent
+      // exits having written nothing. Re-invoke with a "continue" task while nothing is written and time remains.
+      const ATTEMPTS = Number(env("AUTHOR_ATTEMPTS", 3));
+      let run, spent = 0;
+      for (let a = 1; a <= ATTEMPTS; a++) {
+        const cont = a > 1 ? `You stopped before writing anything. Continue now: write /job/meta.json, /job/tv.html and /job/lobby.html with the write tool, then run node harness/smoke.mjs --gate=core once. Do not end your turn without writing the files. (attempt ${a} of ${ATTEMPTS})` : null;
+        run = await runAgent(dir, log, (s, t) => {
+          const wrote = existsSync(join(dir, "tv.html")) ? `, tv.html ${Math.round(statSync(join(dir, "tv.html")).size / 1024)} KB` : "";
+          progress(`agent working, ${spent + s} s, ${t.tools} tool calls${wrote}${t.smoke ? `, last smoke ${t.smoke}` : ""}`);
+        }, cont);
+        spent += run.seconds;
+        const t = run.tally;
+        await progress(run.timedOut ? `agent timed out after ${spent} s (${t.tools} tool calls)`
+          : `agent finished in ${spent} s (exit ${run.code}, ${t.tools} tool calls${t.error ? `, model error: ${t.error.slice(0, 160)}` : ""})`);
+        if (existsSync(join(dir, "tv.html")) || run.timedOut || t.error || spent > TIMEOUT_S - 60) break;
+        log(`nothing written after attempt ${a}; re-invoking the agent`);
+      }
     }
 
     clampMaxPlayers(dir, log); // before the gate, so the harness checks what gets published
