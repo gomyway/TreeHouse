@@ -119,6 +119,7 @@ TV side, through the Little SDK capabilities declared in the manifest:
 ## Game bundle
 
 - `meta.json`: `{ id, title, description, phases: string[], minPlayers, maxPlayers, createdAt, prompt, phonesRequired? }` (`phonesRequired: false` for camera-only games that start with nobody joined; phones stay optional for names and bets)
+  - `palette`, `hook` (one sentence naming the game's world) and `seats` (`[{ name, svg }]`, 6 to 12 self-contained 48×48 currentColor icons the game draws its roster seats with; the TV lobby draws the room in them). Rules: relay/runner/skill/SKILL.md "Roster seats".
 - `tv.html`: one self-contained page (inline CSS/JS, no network) the TV loads in a sandboxed
   iframe (`allow-scripts`). It never touches the relay; it talks to the TV host over `postMessage`:
 
@@ -267,3 +268,52 @@ This lives in the host (`tv/`), since only the host can run a bundle.
 Image URLs: `app.image()` returns a `data:` URL today (Little SDK docs), and the bundle CSP in
 `relay/src/games.mjs` allows `img-src data: blob:`, so `ai_result.url` renders inside a bundle as is.
 If the SDK ever returns an https URL, the host converts it to a data/blob URL before answering.
+
+## Lobby card (per game, authored) — proposed 2026-11-07 16:15, from Nelson
+
+Today the lobby previews a focused game with its palette, hook and seats. Nelson wants the full
+Jackbox treatment: every game ships its own lobby art, authored by the game's author, filling the
+right side of the lobby; the left side is a rolodex of games to scroll through; the voice agent can
+start a named game as well as the focused one.
+
+### Layout (host, tv/)
+- Left column (about a third of the width): the rolodex. A vertical list of game tiles the remote
+  scrolls with up/down; the focused tile is enlarged; order: this TV's own games and recently played
+  first, then global. `list_games` is unchanged.
+- Right pane (the rest, full height): the focused game's lobby card in a sandboxed iframe, the
+  theme-kit `<style data-host-theme>` prepended as for tv.html. Fallback when a bundle has no card:
+  the current palette + hook + seats panel.
+- Voice: `start_game { game: string }` fuzzy-matches title, id and hook ("start the noir one"),
+  `start_selected {}` starts the focused tile, `select_game { game }` moves the rolodex focus.
+  The start gate (min players, explicit start) applies to all three.
+
+### The card (bundle, `lobby.html` beside `tv.html` and `meta.json`)
+- Self-contained: inline CSS and SVG, no network, no external fonts, no audio, no `say`.
+  Laid out in the iframe's own vw/vh; never scrolls; designed for a pane around 1280x1080 and
+  tolerant from 1100x900 to 1400x1080 (the host owns the exact size).
+- Must contain: (1) a title treatment, the game's name as art (typographic or SVG, not a plain
+  heading); (2) a backdrop in the palette using the game's motifs; (3) the room's players drawn as
+  the game's seats (name + icon, up to 12, join order, the first player marked as host/VIP, empty
+  seats shown as "join" slots up to maxPlayers); (4) the join block: the join URL and room code,
+  large and legible from the couch; (5) the hook line; (6) a status line driven by `ready`
+  ("Needs 2 more" / "Everyone in? Say start"); (7) idle motion (something always moves).
+  Look and voice rules apply (palette tokens, three sizes, no bold, no emoji, no pills).
+- Bridge (postMessage, host → card), sent on load and on every change:
+  `{ type: "lobby", code, joinUrl, players: [{ id, name, guid?, connected }], minPlayers,
+     maxPlayers, ready: boolean, focused: boolean }`
+  Card → host: `{ type: "lobby_ready" }` once after first paint. Nothing else.
+- meta.json keeps `palette`, `hook`, `seats`; adds `"lobby": true` when the file exists.
+
+### Relay and publishing
+- `POST /author/complete` accepts `lobby` (html string) beside `html`; stored at R2
+  `games/<id>/lobby.html`; `GET /games/:id/lobby.html` with the same scope rules as tv.html;
+  `GET /games` entries carry `lobby: true|false`. `pnpm games:publish` uploads lobby.html when
+  present. Hand-built games add their own lobby.html (Leo's side for Who's the Bot and Little
+  Says; ours for sample and whodunnit).
+
+### Harness
+- lobby.html exists and loads in jsdom at 1280x1080 with no errors; after the `lobby` message all
+  player names, the code and the join URL text are in the DOM; `ready` false/true changes the
+  status line; a title element ≥ 14vh or an `<svg>` title exists; the look checks run on it too.
+  Missing card → FAIL for authored games (the agent must ship one); WARN for hand-built bundles
+  until they have one.
