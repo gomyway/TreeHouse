@@ -34,10 +34,14 @@ const lines = (out) => out.split("\n");
 // A say line at every round start (the harness stops after 2 rounds, before the final say).
 const say = (text) => TV.replace("function startRound(i) {", `function startRound(i) {\n  send({ type: "say", text: ${JSON.stringify(text)} });`);
 
-// The sample: PASS with no look warnings and a look line.
+const lookWarn = (l) => /^warn: (\[[\w-]+\] )?look/.test(l);
+
+// The sample: PASS with no look warnings, one static look line and one look line per pass.
 const base = run("sample passes clean");
-expect(base, true, /look ai-ok: palette Broadcast, 3 non-grey colours, 3 font sizes .* max weight 500, emoji 0/, "expected PASS and a clean look line");
-if (lines(base.out).some((l) => l.startsWith("warn: look"))) { bad++; console.error("FAIL sample has look warnings"); }
+expect(base, true, /^look: palette Broadcast, 3 non-grey colours, 3 font sizes .* max weight 500, emoji 0, 10 seat variants, hook yes$/m, "expected PASS and a clean look line");
+expect(base, true, /look ai-ok: longest say \d+ words.*; seats: 10 variants, 100% of states, answered-state ok/, "expected the seats summary in the pass look line");
+if (lines(base.out).filter((l) => /^\s*look\b/.test(l)).length !== 2) { bad++; console.error("FAIL expected exactly one static look line and one per pass"); }
+if (lines(base.out).some(lookWarn)) { bad++; console.error("FAIL sample has look warnings"); }
 
 // Every palette in the kit passes the colour checks.
 const KIT = {
@@ -46,11 +50,12 @@ const KIT = {
   Campfire: ["#22170f", "#f5ead6", "#b08a4a", "#ff6a1f"], Lagoon: ["#08343a", "#efe2c4", "#7f9a9c", "#ff6f5e"],
 };
 for (const [name, [bg, ink, muted, accent]] of Object.entries(KIT)) {
-  const tv = TV.replace(/--bg: #[0-9a-f]+; --ink: #[0-9a-f]+; --muted: #[0-9a-f]+; --accent: #[0-9a-f]+;/, `--bg: ${bg}; --ink: ${ink}; --muted: ${muted}; --accent: ${accent};`);
+  // Global: the TV's :root and the phone seat card's :root carry the same four tokens.
+  const tv = TV.replace(/--bg: #[0-9a-f]+; --ink: #[0-9a-f]+; --muted: #[0-9a-f]+; --accent: #[0-9a-f]+;/g, `--bg: ${bg}; --ink: ${ink}; --muted: ${muted}; --accent: ${accent};`);
   if (tv === TV && name !== "Broadcast") { bad++; console.error("FAIL could not swap the sample's palette tokens"); break; }
   const r = run(`palette ${name} passes`, { tv, meta: { ...META, palette: name } });
   expect(r, true, new RegExp(`palette ${name}`), "a kit palette must pass");
-  if (lines(r.out).some((l) => l.startsWith("warn: look"))) { bad++; console.error(`FAIL palette ${name} warns`); }
+  if (lines(r.out).some(lookWarn)) { bad++; console.error(`FAIL palette ${name} warns`); }
 }
 
 expect(run("purple accent fails", { tv: TV.replace("--accent: #ffb000", "--accent: #B98CFF") }), false, /forbidden default-palette colour #B98CFF/, "purple accent");
@@ -68,12 +73,42 @@ expect(run("three emoji fail", { tv: TV.replace("<script>", "<script>\n// ✨\u{
 expect(run("text glyphs are not emoji", { tv: TV.replace("<script>", "<script>\n// ● ▲ ★ ✓ × →") }), true, /emoji 0/, "glyphs");
 expect(run("long say fails", { tv: say("Game over everyone, thank you so much for playing this lovely little game tonight.") }),
   false, /say line of 14 words/, "14-word say");
-expect(run("names not counted", { tv: say("Ada, Bo, Cy and Dee's team: thank you all for playing tonight, really, truly.") }),
-  true, /longest say 10 words/, "names excluded");
+expect(run("names not counted", { tv: say("Ada, Bo, Cy and Dee's team: thank you all for playing tonight, really, truly, friends.") }),
+  true, /longest say 11 words/, "names excluded");
 expect(run("double exclamation warns", { tv: say("Round on! Well played!") }), true, /warn: \[ai-ok\] say line with 2 exclamation marks/, "!!");
 expect(run("unknown palette fails", { meta: { ...META, palette: "Purple" } }), false, /meta\.palette "Purple" is not one of/, "bad palette");
 const { palette, ...noPalette } = META;
 expect(run("missing palette warns", { meta: noPalette }), true, /warn: look: meta\.palette is missing/, "no palette");
+
+// Roster seats (SKILL.md "Roster seats").
+const seatsMeta = (f) => ({ ...META, seats: f(META.seats.map((e) => ({ ...e }))) });
+const drawSeats = (guard) => TV.replace("function drawSeats() {", `function drawSeats() {\n  ${guard}`);
+expect(run("seats missing from a state fail", { tv: drawSeats('if (phase === "results") { for (const el of seatEls.values()) el.remove(); seatEls.clear(); return; }') }),
+  false, /look: seats on \d+ of \d+ distinct TV states \(\d+%\)/, "results screens without seats");
+expect(run("5 variants fail", { meta: seatsMeta((s) => s.slice(0, 5)) }), false, /meta\.seats has 5 variant/, "5 seat variants");
+const { seats, ...noSeats } = META;
+expect(run("missing seats fail", { meta: noSeats }), false, /meta\.seats is missing/, "no meta.seats");
+expect(run("svg with text fails", { meta: seatsMeta((s) => (s[0].svg = s[0].svg.replace("</svg>", '<text x="4" y="40">M</text></svg>'), s)) }),
+  false, /meta\.seats\[0\] \(Microphone\) svg has a <text> element/, "<text> in a seat svg");
+expect(run("emoji in svg fails", { meta: seatsMeta((s) => (s[1].svg = s[1].svg.replace("</svg>", "<desc>\u{1F3A4}</desc></svg>"), s)) }),
+  false, /meta\.seats\[1\] \(Buzzer\) svg contains an emoji/, "emoji in a seat svg");
+expect(run("svg without currentColor fails", { meta: seatsMeta((s) => (s[2].svg = s[2].svg.replace('stroke="currentColor"', 'stroke="#ffffff"'), s)) }),
+  false, /svg does not use currentColor/, "hard-coded colour");
+expect(run("13 variants fail", { meta: seatsMeta((s) => [...s, ...s.slice(0, 3)]) }), false, /meta\.seats has 13 variants/, "over 12 seats");
+expect(run("svg without an svg root fails", { meta: seatsMeta((s) => (s[3].svg = s[3].svg.replace(/^<svg[^>]*>|<\/svg>$/g, ""), s)) }),
+  false, /meta\.seats\[3\] \(Trophy\) svg must have an <svg> root/, "bare paths");
+expect(run("script in svg fails", { meta: seatsMeta((s) => (s[4].svg = s[4].svg.replace("</svg>", "<script>alert(1)</script></svg>"), s)) }),
+  false, /\(Clapperboard\) svg has a <script>/, "<script> in a seat svg");
+expect(run("external reference in svg fails", { meta: seatsMeta((s) => (s[5].svg = s[5].svg.replace("</svg>", '<image href="https://x.invalid/a.png"/></svg>'), s)) }),
+  false, /\(Podium\) svg references something outside itself/, "external href");
+expect(run("answered never set fails", { tv: TV.replace('? "answered" : "thinking"', '? "thinking" : "thinking"') }),
+  false, /seat data-state never became "answered" for Ada, Bo, Cy/, "no answered state");
+expect(run("6 variants and 80% pass", { tv: drawSeats('if (phase === "intro") return;'), meta: seatsMeta((s) => s.slice(0, 6)) }),
+  true, /seats: 6 variants, (8\d|9\d)% of states, answered-state ok/, "6 variants, one state without seats");
+const { hook, ...noHook } = META;
+expect(run("missing hook warns", { meta: noHook }), true, /warn: look: meta\.hook is missing/, "no meta.hook");
+expect(run("no seat icon on the phone warns", { tv: TV.replace("for (const p of active()) send({ type: \"screen\", to: p.id, screen: seatCard(p.id) });", "") }),
+  true, /warn: \[ai-ok\] look: no phone screen shows the player's seat icon/, "no seat card");
 
 if (bad) { console.error(`${bad} look check(s) failed`); process.exit(1); }
 console.log("look checks: all ok");

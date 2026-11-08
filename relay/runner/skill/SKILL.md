@@ -87,13 +87,48 @@ emoji anywhere in tv.html, a `say` line over 12 words and an unknown `meta.palet
 than 6 non-grey colours, more than 3 font sizes, pill radii, a missing `meta.palette` and 2 or more
 exclamation marks in one line.
 
+### Roster seats
+
+The room stays on screen the whole game, drawn in the game's own world.
+
+- **A seat per player on every screen.** Every TV screen state keeps a row of player seats: one
+  element per joined player with `data-player="<id>"` and `data-state="thinking"`, `"answered"` or
+  `"out"`. Each seat shows the player's name in `--tiny` and a playful icon from the game's world.
+- **Icons from the game's world.** Draw 6 to 12 inline-SVG variants for this game (a heist crew:
+  masks, crowbars, torches; a courtroom: gavels, wigs, scales; a cooking show: hats, whisks, pans).
+  Single colour with `currentColor` so the palette drives them, `viewBox="0 0 48 48"`, one or two
+  simple paths, no text inside the SVG, no emoji. Each icon is self-contained (the host draws it as
+  an `<img>` data: URL with `currentColor` baked to the player's colour): an `<svg>` root, fill and
+  stroke as attributes on the elements, no `<script>`, no `<style>` or classes that need page CSS, no
+  external `href` or `url()`.
+- **Stable assignment.** Assign a variant per player at `init`: index by player order, stable for
+  the whole game (late joiners take the next one). When the init players carry a `guid`, derive the
+  index from the guid so the same person keeps their icon across games: FNV-1a 32-bit of the guid,
+  modulo the seat count, the hash the TV lobby uses, so the lobby and the game agree.
+- **Visible state.** thinking = outlined icon, answered = filled icon in the accent, out = 40%
+  opacity, the leader gets a ★ glyph after the name.
+- **Scores count up in place** on the seat (over about 600 ms) when points are awarded.
+- **The phone header may reuse the icon:** send it in the player's first screen as `custom` html
+  (a seat card with the icon and name; html that never calls `postMessage` is display-only, so it
+  is not an action and the harness does not answer it).
+- **Export the set** in `meta.json` as `"seats": [{ "name": "<variant name>", "svg": "<svg …>" }]`,
+  the same markup tv.html draws, so the host can draw the room in the game's seats from the picker.
+  Also write `meta.hook`: one sentence naming the game's world.
+
+The harness fails a pass where fewer than 80% of the distinct TV states (one per distinct `state`
+message) show a `data-player` seat for every joined player, a `meta.seats` that is missing, has
+fewer than 6 or more than 12 entries, or has an entry without an `<svg>` root, a `viewBox` and
+`currentColor` (or with a `<text>` element, an emoji, a `<script>` or an external reference), and a player who answered on their phone whose seat never reached
+`data-state="answered"`. It warns when no phone screen carries a seat icon and when `meta.hook` is
+missing, and prints `seats: <n> variants, <pct>% of states, answered-state ok` in the `look` line.
+
 ## Workflow
 
 1. Read `TASK.md`, `skill/CONTRACT.md` and `reference/sample.html`.
 2. Decide the game in a few lines: phases, who holds which role each round and what every other
    player does meanwhile, what each phone shows per phase, how scoring works, how a round ends
    (timer AND everyone answered), what the TV shows from 3 m away, which palette fits the theme.
-3. Write `meta.json` and `tv.html` in the job directory (not in `reference/`). Build the game
+3. Write `meta.json` (with `palette`, `hook` and `seats`) and `tv.html` in the job directory (not in `reference/`). Build the game
    TASK.md asks for, with every feature it names; the reference shows the bridge and the TV
    sizing, it is not a template to reskin. Write `tv.html` whole in one go, then fix it with edits.
 4. Run `node harness/smoke.mjs`. It prints `SMOKE PASS` or `SMOKE FAIL` with reasons.
@@ -114,7 +149,8 @@ button / types short text on every input screen, adds a 4th player mid-game, and
 joined player (the late joiner included) never getting an actionable screen, and fewer than 2
 actionable screens in total. It warns when phone buttons offer named characters who are not
 players (invented NPCs). It also runs the look and voice checks above (palette, colours, weights,
-sizes, radii, emoji, `say` length) and prints a `look` line per pass. Its `participation` line
+sizes, radii, emoji, `say` length) and the roster seats (a seat per joined player in at least 80%
+of TV states, `meta.seats`, the answered state); it prints one static `look` line and one per pass. Its `participation` line
 shows how many actionable screens each player got.
 `node harness/smoke.mjs --verbose` prints every message both ways.
 

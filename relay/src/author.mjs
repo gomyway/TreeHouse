@@ -69,6 +69,12 @@ These set how the TV page looks and how the host talks.
 - Font: font-family: "Satoshi", system-ui, sans-serif. The host may inject Satoshi; the fallback is fine.
 - No emoji as UI. Emoji may appear only inside player-typed content echoed back. None in static markup, CSS, buttons, headers, phone screens or say lines. Draw shapes with text characters (● ▲ ★ ✓ ×) or inline SVG.
 - Voice cadence. say lines are 12 words or fewer (player names not counted), one per beat, at most one exclamation mark per line, no stacked punctuation (!!, ?!). The TV shows the gist; the host says the rest.
+- Roster seats: every TV screen state keeps a row of player seats, one element per joined player with data-player="<id>" and data-state="thinking" | "answered" | "out". Each seat shows the player's name in --tiny and a playful icon from the game's own world.
+- Seat icons: draw 6 to 12 inline-SVG variants for this game (a heist crew: masks, crowbars, torches; a courtroom: gavels, wigs, scales; a cooking show: hats, whisks, pans). Single colour with currentColor so the palette drives them, viewBox="0 0 48 48", one or two simple paths, no text inside the SVG, no emoji. Each is self-contained (the host draws it as an <img> data: URL with currentColor baked to the player's colour): an <svg> root, fill and stroke as attributes, no <script>, no <style> or classes, no external href or url().
+- Seat assignment: per player at init, by player order, stable for the whole game (late joiners take the next one). When the init players carry a guid, derive the index from it so the same person keeps their icon across games: FNV-1a 32-bit of the guid modulo the seat count, the hash the TV lobby uses.
+- Seat state is visible: thinking = outlined icon, answered = filled icon in the accent, out = 40% opacity, the leader gets a ★ glyph after the name. Scores count up in place on the seat over about 600 ms when awarded.
+- The phone header may reuse the icon: send it in the player's first screen as custom html (a seat card with icon and name that never calls postMessage, so it is display-only).
+- Export the icon set in meta.seats (the same markup tv.html draws) so the host can draw the room in the game's seats, and write meta.hook: one sentence naming the game's world.
 
 # The bridge (window.postMessage, exactly these shapes)
 
@@ -137,7 +143,7 @@ Sensors: "gyro" sends orientation/motion readings at hz; "camera" sends a JPEG d
 - Keep it compact and readable (a few hundred lines at most). Never put three backticks inside the HTML.
 
 # meta.json
-{ "title": string, "description": string (one or two sentences a TV agent can read aloud), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number, "palette": "Noir" | "Broadcast" | "Paper" | "Arcade" | "Campfire" | "Lagoon" }
+{ "title": string, "description": string (one or two sentences a TV agent can read aloud), "hook": string (one sentence naming the game's world), "phases": string[] (the phase names your state messages use), "minPlayers": number, "maxPlayers": number, "palette": "Noir" | "Broadcast" | "Paper" | "Arcade" | "Campfire" | "Lagoon", "seats": { "name": string, "svg": string }[] (6 to 12 seat icons, see "Roster seats") }
 - meta.phonesRequired (optional, default true): set false only for camera-only games that must start with nobody joined; phones then stay optional for names and bets.
 Do not include id, createdAt or prompt; the server adds them.
 
@@ -281,7 +287,11 @@ async function author(env, prompt, context, onAttempt = () => {}) {
   const { meta: gen, html } = await generate(env, prompt, context, onAttempt);
   const meta = {
     title: gen.title.trim().slice(0, 80), description: gen.description.trim().slice(0, 400), phases: gen.phases,
-    minPlayers: gen.minPlayers, maxPlayers: gen.maxPlayers ?? Math.max(gen.minPlayers, 12), ...base,
+    minPlayers: gen.minPlayers, maxPlayers: gen.maxPlayers ?? Math.max(gen.minPlayers, 12),
+    ...(typeof gen.palette === "string" ? { palette: gen.palette } : {}),
+    ...(typeof gen.hook === "string" && gen.hook.trim() ? { hook: gen.hook.trim().slice(0, 200) } : {}),
+    ...(Array.isArray(gen.seats) ? { seats: gen.seats.filter((x) => x && typeof x.name === "string" && typeof x.svg === "string").slice(0, 12) } : {}),
+    ...base,
   };
   await putGame(env, meta, html);
   return { id, meta };

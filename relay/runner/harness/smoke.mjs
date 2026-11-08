@@ -14,6 +14,8 @@
 // Participation: every joined player (the 4th, late joiner too) must get at least one actionable
 // screen (buttons/text/pad/custom) and the pass must send at least 2; both are warnings only when
 // meta.phonesRequired is false. Phone buttons that offer invented characters instead of players warn.
+// A custom screen whose html never mentions postMessage is display-only (a seat card): it is neither
+// counted as an action nor answered.
 //
 // Look and voice (SKILL.md "Look and voice rules"), read from tv.html's CSS (<style> blocks, style="..."
 // attributes anywhere in the file, SVG fill/stroke/stop-color attributes) and from the say lines:
@@ -30,7 +32,18 @@
 //         such as ● ▲ ★ ✓ × are not emoji. 2 allows one decorative glyph pair.
 //   FAIL  a say line above 12 words (player names not counted); WARN on 2+ exclamation marks or stacked !? in one line.
 //   FAIL  meta.palette not one of Noir, Broadcast, Paper, Arcade, Campfire, Lagoon; WARN when absent.
-// Each pass prints a "look" line: palette, colours, font sizes, max weight, emoji, longest say.
+// Roster seats (SKILL.md "Roster seats"):
+//   FAIL  meta.seats missing, under 6 or over 12 entries, or an entry whose svg has no <svg> root, viewBox or
+//         currentColor, or has a <text> element, an emoji, a <script>/on* handler or an external href/url()
+//         (the host renders each as an <img> data: URL with currentColor baked to the player's colour);
+//         WARN on a viewBox other than 0 0 48 48 and on <style>/class in a seat svg; WARN when meta.hook is missing.
+//   FAIL  under 80% of the distinct TV states (one per distinct state message, phase + summary, sampled
+//         right after it) hold a [data-player] seat for every joined player.
+//   FAIL  a player whose phone sent an answer (buttons/text/custom) never had a seat with
+//         data-state="answered" (a MutationObserver watches the whole pass, so a brief state counts).
+//   WARN  no custom phone screen carried one of the seat icons (the phone header may reuse it).
+// A "look:" line prints the static checks once (palette, colours, font sizes, max weight, emoji, seats,
+// hook); each pass then prints "look <pass>:" with its longest say and its seats result.
 //
 // Exit 0 and a final "SMOKE PASS" line when everything holds; exit 1 and "SMOKE FAIL" otherwise.
 
@@ -67,6 +80,8 @@ const TEXTS = ["pizza", "my cat", "a very tired penguin", "nope", "tacos forever
 const TINY_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const SCREEN_KINDS = new Set(["info", "buttons", "text", "pad", "custom"]);
 const INPUT_KINDS = new Set(["buttons", "text", "pad", "custom"]);
+// A custom screen that never posts is display-only (e.g. a seat card), like info.
+const isActionable = (s) => INPUT_KINDS.has(s?.kind) && !(s.kind === "custom" && typeof s.html === "string" && !/postMessage/.test(s.html));
 const GAME_TYPES = new Set(["screen", "ask", "play", "say", "state", "done", "ai", "ai_image", "bot_answer", "motion_start", "motion_stop", "moment"]);
 
 const failures = [];
@@ -122,11 +137,37 @@ const look = analyzeLook(html ?? "", meta);
 function analyzeLook(src, meta) {
   const lf = (s) => { if (!lookFails.includes(s)) lookFails.push(s); };
   const lw = (s) => { if (!lookWarns.includes(s)) lookWarns.push(s); };
-  const out = { palette: "none", colours: 0, sizes: [], maxWeight: 400, emoji: 0 };
+  const out = { palette: "none", colours: 0, sizes: [], maxWeight: 400, emoji: 0, seats: 0, seatIcons: [], hook: false };
   if (meta && typeof meta === "object") {
     if (meta.palette === undefined) lw(`meta.palette is missing: pick one of ${PALETTES.join(", ")} and use its four tokens`);
     else if (!PALETTES.some((p) => p.toLowerCase() === String(meta.palette).toLowerCase())) lf(`meta.palette ${JSON.stringify(meta.palette)} is not one of ${PALETTES.join(", ")}`);
     else out.palette = meta.palette;
+    // Roster seats: the game's icon set, exported for the host's picker.
+    const seats = meta.seats;
+    if (!Array.isArray(seats)) lf('meta.seats is missing: export the 6 to 12 seat icons as [{ "name", "svg" }] (see "Roster seats")');
+    else {
+      out.seats = seats.length;
+      if (seats.length < 6) lf(`meta.seats has ${seats.length} variant(s): draw 6 to 12 seat icons from the game's world`);
+      if (seats.length > 12) lf(`meta.seats has ${seats.length} variants: 6 to 12 (the host draws at most 12)`);
+      seats.forEach((e, i) => {
+        const svg = typeof e?.svg === "string" ? e.svg : "", label = `meta.seats[${i}]${typeof e?.name === "string" ? ` (${e.name})` : ""}`;
+        if (typeof e?.name !== "string" || !e.name.trim()) lf(`meta.seats[${i}] needs a name`);
+        if (!/^<svg[\s>]/i.test(svg.trim())) { lf(`${label} svg must have an <svg> root (the host renders it as an <img> data: URL)`); return; }
+        const vb = svg.match(/\bviewBox\s*=\s*["']([^"']*)["']/i);
+        if (!vb) lf(`${label} svg has no viewBox (use viewBox="0 0 48 48")`);
+        else if (vb[1].trim().split(/[\s,]+/).join(" ") !== "0 0 48 48") lw(`${label} svg viewBox is "${vb[1]}"; use "0 0 48 48"`);
+        if (/<script\b|\son[a-z]+\s*=/i.test(svg)) lf(`${label} svg has a <script> or an on* handler: seat icons are static paths`);
+        const ext = [...svg.matchAll(/\b(?:xlink:)?href\s*=\s*["']([^"']*)["']|url\(\s*["']?([^)"']*)/gi)].map((m) => (m[1] ?? m[2] ?? "").trim()).filter((v) => !v.startsWith("#"));
+        if (ext.length || /@import\b/i.test(svg)) lf(`${label} svg references something outside itself (${(ext[0] ?? "@import").slice(0, 60)}): seats must be self-contained`);
+        if (/<style\b|\bclass\s*=/i.test(svg)) lw(`${label} svg uses <style> or class: the host draws it as an <img> without page CSS, so put fill/stroke on the elements`);
+        if (!/currentColor/i.test(svg)) lf(`${label} svg does not use currentColor (single colour, the palette drives it)`);
+        if (/<text\b/i.test(svg)) lf(`${label} svg has a <text> element: icons only, the name goes beside it`);
+        if (/\p{Emoji_Presentation}|\uFE0F/u.test(svg)) lf(`${label} svg contains an emoji: draw the icon with paths`);
+        out.seatIcons.push(svg, ...[...svg.matchAll(/\bd\s*=\s*"([^"]{8,})"/g)].map((m) => m[1]));
+      });
+    }
+    out.hook = typeof meta.hook === "string" && !!meta.hook.trim();
+    if (!out.hook) lw("meta.hook is missing: one sentence naming the game's world");
   }
   if (!src) return out;
   const isRing = (s) => /ring/i.test(s);
@@ -270,6 +311,10 @@ function runPass(aiOk) {
     const realStart = Date.now();
     const timers = [];
     const says = [];                        // every say text, for the voice cadence check
+    // Roster seats: one sample of the TV per distinct state message, answered seats seen, phone icon use.
+    const seatStates = new Map();           // "phase|summary" -> every joined player had a [data-player] seat
+    const answeredIds = new Set(), answeredSeen = new Set();
+    let lateIn = false, seatOnPhone = false;
 
     const vc = new VirtualConsole();
     vc.on("jsdomError", (e) => {
@@ -309,7 +354,7 @@ function runPass(aiOk) {
       const key = JSON.stringify(screen);
       if (seenScreen.get(pid) === key) return;
       seenScreen.set(pid, key);
-      if (!screen || !INPUT_KINDS.has(screen.kind)) return;
+      if (!isActionable(screen)) return;
       if (!firstInputAt) {
         // The round's phase: whatever state the game posts in the same turn as this screen.
         firstInputAt = Date.now();
@@ -318,7 +363,7 @@ function runPass(aiOk) {
       const send = (data, delay) => {
         timers.push(setTimeout(() => {
           if (finished || seenScreen.get(pid) !== key) return; // screen replaced before we answered
-          stats.inputs++; answered.set(pid, (answered.get(pid) ?? 0) + 1);
+          stats.inputs++; answered.set(pid, (answered.get(pid) ?? 0) + 1); answeredIds.add(pid);
           afterInput = { state: 0, screen: 0 };
           deliver({ type: "input", player: pid, data }, 0);
         }, delay));
@@ -368,6 +413,8 @@ function runPass(aiOk) {
           else {
             if (meta && Array.isArray(meta.phases) && !meta.phases.includes(m.phase)) pwarn(`state.phase "${m.phase}" is not in meta.phases`);
             if (m.phase !== phase) { phase = m.phase; phaseEntries.set(phase, (phaseEntries.get(phase) ?? 0) + 1); }
+            const key = m.phase + "|" + m.summary;
+            if (!seatStates.has(key)) { seatStates.set(key, false); timers.push(setTimeout(() => sampleSeats(key), 0)); } // after the game's render
           }
           if (m.scores !== undefined && (typeof m.scores !== "object" || m.scores === null || Array.isArray(m.scores))) pfail("state.scores must be an object { name: number }");
           break;
@@ -378,7 +425,8 @@ function runPass(aiOk) {
           if (!checkScreen(m.screen, m.to)) break;
           if (m.to === LATE.id || (m.to === "*" && lateJoined)) lateGotScreen = true;
           const targets = m.to === "*" ? [...PLAYERS, ...(lateJoined ? [LATE] : [])].map((p) => p.id) : [m.to];
-          if (INPUT_KINDS.has(m.screen.kind)) {
+          if (m.screen.kind === "custom" && typeof m.screen.html === "string" && look.seatIcons.some((x) => m.screen.html.includes(x))) seatOnPhone = true;
+          if (isActionable(m.screen)) {
             actionableTotal++;
             for (const pid of targets) if (actionable.has(pid)) actionable.set(pid, actionable.get(pid) + 1);
             const s = m.screen;
@@ -492,6 +540,23 @@ function runPass(aiOk) {
     });
     window = dom.window;
 
+    // Roster seats. Joined players right now; a seat counts when its data-player is one of their ids.
+    const joinedNow = () => [...PLAYERS, ...(lateIn ? [LATE] : [])];
+    function sampleSeats(key) {
+      if (finished) return;
+      const ids = new Set([...window.document.querySelectorAll("[data-player]")].map((e) => e.getAttribute("data-player")));
+      seatStates.set(key, joinedNow().every((p) => ids.has(p.id)));
+    }
+    const noteAnswered = (el) => {
+      if (el?.nodeType !== 1) return;
+      for (const e of [el, ...el.querySelectorAll("[data-player][data-state]")])
+        if (e.getAttribute("data-state") === "answered" && e.hasAttribute("data-player")) answeredSeen.add(e.getAttribute("data-player"));
+    };
+    try {
+      new window.MutationObserver((records) => { for (const r of records) r.type === "attributes" ? noteAnswered(r.target) : r.addedNodes.forEach(noteAnswered); })
+        .observe(window.document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-state", "data-player"] });
+    } catch (e) { pwarn(`harness: could not watch seat states (${e.message})`); }
+
     function finish(why) {
       if (finished) return;
       finished = true;
@@ -523,10 +588,19 @@ function runPass(aiOk) {
         phonesOptional ? pwarn(s) : pfail(s);
       }
       const longestSay = sayVerdict(says, pfail, pwarn);
+      // Roster seats.
+      const sampled = [...seatStates.values()], seated = sampled.filter(Boolean).length;
+      const seatPct = sampled.length ? Math.round((100 * seated) / sampled.length) : 0;
+      if (sampled.length && seated / sampled.length < 0.8)
+        pfail(`look: seats on ${seated} of ${sampled.length} distinct TV states (${seatPct}%): every screen state keeps a [data-player] seat for every joined player (80% needed)`);
+      const unseen = [...PLAYERS, LATE].filter((p) => answeredIds.has(p.id) && !answeredSeen.has(p.id));
+      if (unseen.length) pfail(`look: seat data-state never became "answered" for ${unseen.map((p) => p.name).join(", ")} after they answered`);
+      if (!seatOnPhone && look.seats) pwarn("look: no phone screen shows the player's seat icon (send it in the first screen as custom html)");
+      const seatLine = `seats: ${look.seats} variants, ${seatPct}% of states, answered-state ${unseen.length ? "missing for " + unseen.map((p) => p.name).join(", ") : "ok"}`;
       if (npcNames.size) pwarn(`phones vote on named characters who are not players (${[...npcNames].slice(0, 4).join(", ")}): never invent NPC suspects or contestants, the room is the cast`);
       try { window.close(); } catch {}
       const participation = joined.map((p) => `${p.name} ${actionable.get(p.id)}`).join(", ") + `; ${actionableTotal} actionable screens, ${namedActionable} naming a player`;
-      done({ tag, why, pf, pw, stats, participation, longestSay, gameS: Math.round(gameMs / 1000), realS: ((Date.now() - realStart) / 1000).toFixed(1), cycles, inputPhase, minAnswered, gotDone });
+      done({ tag, why, pf, pw, stats, participation, longestSay, seatLine, gameS: Math.round(gameMs / 1000), realS: ((Date.now() - realStart) / 1000).toFixed(1), cycles, inputPhase, minAnswered, gotDone });
     }
 
     // ---------- the session script ----------
@@ -539,7 +613,7 @@ function runPass(aiOk) {
       const gameMs = (Date.now() - realStart) * SPEED;
       const cycles = inputPhase ? (phaseEntries.get(inputPhase) ?? 0) : 0;
       // A late joiner after the first round-ish, to check they get a screen.
-      if (!lateJoined && cycles >= 2) { lateJoined = true; deliver({ type: "players", players: [...PLAYERS, LATE] }, 0); }
+      if (!lateJoined && cycles >= 2) { lateJoined = true; deliver({ type: "players", players: [...PLAYERS, LATE] }, 0); timers.push(setTimeout(() => { lateIn = true; }, 0)); }
       if (cycles >= 3 && afterInput.state + afterInput.screen > 0) return finish("2 rounds");
       if (gameMs > BUDGET_MS) return finish("budget");
     }, 100);
@@ -548,6 +622,7 @@ function runPass(aiOk) {
 
 // ---------- run ----------
 const passes = [];
+if (html) log(`look: palette ${look.palette}, ${look.colours} non-grey colours, ${look.sizes.length} font sizes (${look.sizes.join(" ") || "none"}), max weight ${look.maxWeight}, emoji ${look.emoji}, ${look.seats} seat variants, hook ${look.hook ? "yes" : "missing"}`);
 if (!failures.length) {
   if (AI_MODE === "both" || AI_MODE === "ok") passes.push(await runPass(true));
   if (AI_MODE === "both" || AI_MODE === "fail") passes.push(await runPass(false));
@@ -555,11 +630,10 @@ if (!failures.length) {
 for (const p of passes) {
   log(`pass ${p.tag}: ended by ${p.why} after ${p.gameS} s game time (${p.realS} s real); states ${p.stats.state}, screens ${p.stats.screen}, says ${p.stats.say}, inputs sent ${p.stats.inputs}, ai ${p.stats.ai}, ai_image ${p.stats.ai_image}, bot_answer ${p.stats.bot_answer}, motion_start ${p.stats.motion_start}; input phase "${p.inputPhase}" entered ${p.cycles}x; done ${p.gotDone}`);
   log(`  participation ${p.tag}: ${p.participation}`);
-  log(`  look ${p.tag}: palette ${look.palette}, ${look.colours} non-grey colours, ${look.sizes.length} font sizes (${look.sizes.join(" ") || "none"}), max weight ${look.maxWeight}, emoji ${look.emoji}, longest say ${p.longestSay.n} words${p.longestSay.text ? ` "${p.longestSay.text.slice(0, 80)}"` : ""}`);
+  log(`  look ${p.tag}: longest say ${p.longestSay.n} words${p.longestSay.text ? ` "${p.longestSay.text.slice(0, 80)}"` : ""}; ${p.seatLine}`);
   for (const f of p.pf) failures.push(`[${p.tag}] ${f}`);
   for (const w of p.pw) warn(`[${p.tag}] ${w}`);
 }
-if (!passes.length && html) log(`  look: palette ${look.palette}, ${look.colours} non-grey colours, ${look.sizes.length} font sizes, max weight ${look.maxWeight}, emoji ${look.emoji}`);
 for (const f of lookFails) failures.push(`look: ${f}`);
 for (const w of lookWarns) warn(`look: ${w}`);
 for (const w of warnings) log(`warn: ${w}`);
