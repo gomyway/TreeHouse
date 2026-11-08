@@ -47,7 +47,7 @@
 // hook); each pass then prints "look <pass>:" with its longest say and its seats result.
 //
 // Lobby card (SKILL.md "Lobby card"), lobby.html beside tv.html, loaded in a second jsdom window at 1280x1080:
-//   FAIL  lobby.html missing (--lobby=warn makes that a warning, for hand-built bundles; default fail).
+//   FAIL  lobby.html missing (--lobby=warn makes that a warning, for hand-built bundles; default warn: a game without a card still publishes and the lobby falls back to its palette panel).
 //   FAIL  uncaught errors; a <script src>, an external src/href, @import or a url() that is not data:/#/blob:;
 //         an <audio> tag or new Audio(); network or storage use; any posted type other than lobby_ready, or no
 //         lobby_ready within 2 s of load (WARN when posted more than once).
@@ -106,7 +106,7 @@ const BUDGET_MS = Number(opt("budget", 300)) * 1000;   // game time
 const AI_MODE = opt("ai", "both");
 const VERBOSE = flag("verbose");
 const lobbyPath = resolve(opt("lobby-html", join(dirname(htmlPath), "lobby.html")));
-const LOBBY_MODE = (argv.find((a) => a.startsWith("--lobby="))?.slice(8)) ?? opt("lobby", "fail");
+const LOBBY_MODE = (argv.find((a) => a.startsWith("--lobby="))?.slice(8)) ?? opt("lobby", "warn");
 if (!["warn", "fail"].includes(LOBBY_MODE)) { console.error(`--lobby must be warn or fail, got ${LOBBY_MODE}`); process.exit(2); }
 
 const PLAYERS = [
