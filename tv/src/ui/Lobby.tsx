@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { Player } from "../room/model";
 import type { GameMeta } from "../game/catalog";
+import { seatFor, seatSrc, validSeats } from "../game/seats";
+import { paletteFor } from "../game/theme";
 import { Qr } from "./Qr";
 
 export function StatusPill({ status }: { status: string }) {
@@ -36,6 +38,26 @@ export function Lobby({
   useEffect(() => {
     tiles.current[focus]?.focus({ preventScroll: true });
   }, [focus, games.length]);
+
+  // Preview the focused game: its palette washes over the lobby (the app's own tokens are
+  // re-pointed at the game's on :root, with CSS transitions), its hook shows large, and the room is
+  // drawn in its seats. Leaving the lobby restores the app palette.
+  const shown = games.slice(0, 6);
+  const fg = shown.length ? shown[Math.min(focus, shown.length - 1)] : undefined;
+  const seats = validSeats(fg?.seats);
+  useEffect(() => {
+    if (!fg) return;
+    const p = paletteFor(fg.palette);
+    const root = document.documentElement.style;
+    const vars: Record<string, string> = {
+      "--bg": p.bg, "--bg-2": p.bg, "--card": p.surface, "--ink": p.ink, "--ink-2": p.ink, "--ink-3": p.muted,
+      "--accent": p.accent, "--leaf": p.accent, "--line": `color-mix(in srgb, ${p.muted} 35%, transparent)`,
+    };
+    for (const [k, v] of Object.entries(vars)) root.setProperty(k, v);
+    return () => {
+      for (const k of Object.keys(vars)) root.removeProperty(k);
+    };
+  }, [fg?.id, fg?.palette]);
   return (
     <main className="lobby" data-little="region" data-little-label="Lobby">
       <div className="lobby-left">
@@ -68,6 +90,11 @@ export function Lobby({
 
         <section className="games card" data-little="region" data-little-label="Games">
           <div className="eyebrow">Games</div>
+          {fg ? (
+            <div className="game-hook" key={fg.id} data-little="readout" data-little-label="Focused game" data-little-data={JSON.stringify({ title: fg.title, hook: fg.hook ?? null })}>
+              {fg.hook ?? fg.title}
+            </div>
+          ) : null}
           {games.length ? (
             <ul className="game-row">
               {games.slice(0, 6).map((g, i) => (
@@ -116,7 +143,14 @@ export function Lobby({
                 data-little-order={i + 1}
                 style={{ ["--c" as string]: p.color }}
               >
-                <span className="avatar">{p.name.slice(0, 1).toUpperCase()}</span>
+                {(() => {
+                  const seat = seatFor(p, seats);
+                  return seat ? (
+                    <img className="seat" key={`${fg?.id}-${seat.name}`} src={seatSrc(seat, p.color)} alt={seat.name} title={seat.name} />
+                  ) : (
+                    <span className="avatar">{p.name.slice(0, 1).toUpperCase()}</span>
+                  );
+                })()}
                 <span className="name">{p.name}</span>
               </li>
             ))}

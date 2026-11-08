@@ -224,3 +224,10 @@ body {
 .ready-players { list-style: none; margin: 0; padding: 0; align-self: stretch; display: flex; flex-direction: column; gap: 10px; font-size: 30px; }
 .ready-players li { display: flex; align-items: center; gap: 14px; }
 .ready-players .avatar { width: 44px; height: 44px; font-size: 22px; }
+
+/* Lobby preview: the focused game's palette, hook and seats */
+body, .card, .game-tile, .pill, .code span { transition: background-color 600ms ease, border-color 600ms ease, color 600ms ease; }
+.game-hook { font-size: 40px; line-height: 1.2; color: var(--accent); margin: 10px 0 4px; animation: hookIn 500ms ease both;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@keyframes hookIn { from { opacity: 0; transform: translateY(8px); } }
+.player .seat { flex: none; width: 56px; height: 56px; animation: pop 400ms cubic-bezier(.2,1.4,.4,1) both; }

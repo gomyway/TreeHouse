@@ -15,6 +15,10 @@ export interface GameMeta {
   createdAt?: string;
   /** palette id from the authoring kit; the host theme maps it to --bg/--ink/... */
   palette?: string;
+  /** one line naming the game's world, shown large when its tile is focused in the lobby */
+  hook?: string;
+  /** themed player seats: 6-12 inline SVGs (viewBox 0 0 48 48, currentColor) */
+  seats?: { name: string; svg: string }[];
   /** false: the game can start with nobody joined by phone (e.g. camera games) */
   phonesRequired?: boolean;
   prompt?: string;
